@@ -13,18 +13,29 @@ export async function POST(req: Request) {
     const label = String(body.label || provider);
     if (!provider || !rawKey) return Response.json({ error: "provider and key are required" }, { status: 400 });
     const supabase = createSupabaseServiceClient();
-    const encrypted = await supabase.rpc("encrypt_key", { p_key: rawKey, p_secret: requireEnv("ENCRYPTION_SECRET") });
-    if (encrypted.error) throw encrypted.error;
-    const { data, error } = await supabase.from("org_api_keys").upsert({
+    
+    // Set the KMS secret in the DB session context
+    await supabase.rpc("set_config_value", { 
+        name: "app.kms_key", 
+        value: requireEnv("ENCRYPTION_SECRET")
+    });
+
+    const { data: encryptedKey, error: encryptError } = await supabase.rpc("encrypt_llm_key", { 
+        plaintext_key: rawKey 
+    });
+
+    if (encryptError) throw encryptError;
+
+    const { data, error } = await supabase.from("llm_keys").upsert({
       org_id: identity.orgId,
       provider,
       label,
-      encrypted_key: encrypted.data,
+      key_encrypted: encryptedKey,
       key_hint: rawKey.slice(-4),
       custom_endpoint: body.custom_endpoint || null,
       is_active: true,
-      added_by: identity.userId,
-    }, { onConflict: "org_id,provider" }).select("id, provider, label, key_hint, custom_endpoint, is_active").single();
+      created_by: identity.userId,
+    }, { onConflict: "org_id,provider" }).select("id, provider, label, key_hint, is_active").single();
     if (error) throw error;
     return Response.json(data);
   } catch (error) {

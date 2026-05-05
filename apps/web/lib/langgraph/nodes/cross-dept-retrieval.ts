@@ -1,33 +1,33 @@
-import type { AtheneState } from "@/lib/langgraph/state";
-import { vectorSearch } from "@/lib/langgraph/tools/vector-search";
-import { auditCrossDeptAccess } from "@/lib/supabase/audit";
+/**
+ * lib/langgraph/nodes/cross-dept-retrieval.ts
+ *
+ * Cross-department retrieval agent worker node.
+ *
+ * Delegates to the `lib/agents/cross-dept-agent` implementation which
+ * enforces the BI role check and writes the bi_access_audit trail.
+ * This thin wrapper adapts the LangGraph node signature (state + config)
+ * and tags `active_agent` on the returned state update.
+ *
+ * No `any`. Security context comes exclusively from verified identity
+ * fields in AtheneState (org_id, user_id, user_role).
+ */
 
-export async function crossDeptRetrievalNode(state: AtheneState): Promise<Partial<AtheneState>> {
-  if (!["admin", "bi_analyst"].includes(state.user_role)) throw new Error("Cross-department queries require admin or BI analyst access");
-  const prompt = String(state.messages.at(-1)?.content || "");
-  const hits = await vectorSearch(state.user_id, state.org_id, prompt, 10);
-  const allowedHits = state.user_role === "bi_analyst"
-    ? hits.filter((hit) => hit.visibility === "bi_accessible" && (!hit.dept_id || state.accessible_dept_ids.includes(hit.dept_id)))
-    : hits;
-  const deptIds = Array.from(new Set(allowedHits.map((hit) => hit.dept_id).filter(Boolean))) as string[];
-  await auditCrossDeptAccess({
-    threadId: state.thread_id,
-    userId: state.user_id,
-    orgId: state.org_id,
-    queriedDeptIds: deptIds,
-    chunkIdsAccessed: allowedHits.map((hit) => hit.chunk_id),
-    prompt,
-    grantId: state.bi_grant_id,
-  });
+import type { RunnableConfig } from "@langchain/core/runnables";
+import type { AtheneStateType, AtheneStateUpdate } from "../state";
+import { crossDeptAgent } from "@/lib/agents/cross-dept-agent";
+
+/**
+ * LangGraph node wrapper for the cross-department retrieval agent.
+ * The role check happens inside `crossDeptAgent` (first statement).
+ * We re-inject the config so the underlying ToolNode can access it.
+ */
+export async function crossDeptRetrievalAgent(
+  state: AtheneStateType,
+  config: RunnableConfig,
+): Promise<AtheneStateUpdate> {
+  const update = await crossDeptAgent(state, config);
   return {
-    retrieved_context: allowedHits.map((hit) => ({
-      chunk_id: hit.chunk_id,
-      dept_id: hit.dept_id || "",
-      source_url: hit.source_url,
-      title: hit.title,
-      score: hit.score,
-      content: "",
-    })),
-    cited_sources: allowedHits.map((hit) => ({ chunk_id: hit.chunk_id, source_url: hit.source_url, title: hit.title })),
+    ...update,
+    active_agent: "cross_dept_retrieval",
   };
 }

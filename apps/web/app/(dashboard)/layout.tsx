@@ -1,6 +1,6 @@
 "use client";
 
-import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
+import { UserButton, OrganizationSwitcher, useOrganization } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -25,6 +25,7 @@ export default function DashboardLayout({
     children: React.ReactNode;
 }) {
     const pathname = usePathname();
+    const { organization, isLoaded: isOrgLoaded } = useOrganization();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     const navigation = [
@@ -81,11 +82,14 @@ export default function DashboardLayout({
                 {/* Bottom User Area */}
                 <div className="p-4 border-t border-slate-100 shrink-0">
                     <div className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-50 transition-colors">
-                        {/* PATCHED: Removed afterSignOutUrl */}
                         <UserButton />
-                        <div className="flex flex-col">
-                            <span className="text-sm font-medium text-slate-900 leading-none">Account</span>
-                            <span className="text-xs text-slate-500 mt-1 leading-none">Manage profile</span>
+                        <div className="flex flex-col overflow-hidden">
+                            <span className="text-sm font-medium text-slate-900 truncate">
+                                {isOrgLoaded && organization ? organization.name : (isOrgLoaded ? "Personal Account" : "Loading...")}
+                            </span>
+                            <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mt-0.5">
+                                {isOrgLoaded && organization ? "Organization" : (isOrgLoaded ? "Private" : "...")}
+                            </span>
                         </div>
                     </div>
                 </div>

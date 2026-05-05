@@ -1,0 +1,260 @@
+﻿import { getConnectionToken } from '@/lib/nango/client'
+import { getProviderConfig, type ProviderKey } from './providers'
+import { Nango } from '@nangohq/node'
+
+// ─── Shared output type ─────────────────────────────────────────────────────
+
+/**
+ * Canonical chunk shape returned by every fetcher.
+ * Content lives in RAM only — never written to the DB.
+ */
+export interface FetchedChunk {
+  /** Opaque ID — used by live-doc-fetch to re-fetch on query time */
+  chunk_id: string
+  /** Human-readable title shown in citations */
+  title: string
+  /** The actual content — RAM only, never written to DB */
+  content: string
+  /** Deep link back to the source */
+  source_url: string
+  /** Lightweight metadata — NO body/content fields allowed */
+  metadata: {
+    provider: string
+    resource_type: string
+    last_modified?: string
+    author?: string
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Signature for a background fetcher (full sync).
+ */
+export type ProviderFetcher = (
+  connectionId: string,
+  orgId: string,
+  options?: { since?: string; limit?: number }
+) => Promise<FetchedChunk[]>
+
+/**
+ * Signature for a live searcher (query-time, ephemeral).
+ */
+export type ProviderSearcher = (
+  connectionId: string,
+  orgId: string,
+  query: string,
+  options?: { limit?: number }
+) => Promise<FetchedChunk[]>
+
+// ─── Token helper ────────────────────────────────────────────────────────────
+
+/**
+ * Retrieves an OAuth access token for the given provider via Nango.
+ * Centralizes auth so individual fetchers never touch Nango directly.
+ *
+ * Looks up the Nango `nangoIntegrationId` from the registry so callers
+ * only need to pass the canonical ProviderKey (e.g. 'google', 'outlook').
+ *
+ * @param connectionId - The Nango connectionId tied to a specific user/org.
+ * @param providerKey  - The canonical registry key (e.g. 'google', 'microsoft').
+ * @param orgId        - The organization ID for ownership verification.
+ * @returns The raw OAuth access token string.
+ */
+export async function getProviderToken(
+  connectionId: string,
+  providerKey: ProviderKey,
+  orgId: string,
+): Promise<string> {
+  const nangoIntegrationId = getProviderConfig(providerKey).nangoIntegrationId
+  return getConnectionToken(connectionId, nangoIntegrationId, orgId)
+}
+
+// ─── Metadata helper ─────────────────────────────────────────────────────────
+
+/**
+ * Fetches connection metadata from Nango.
+ * Used to retrieve subdomains, account IDs, etc.
+ * 🔒 Rule 1: Always pass orgId for verification.
+ */
+export async function getProviderMetadata(
+  connectionId: string,
+  providerKey: ProviderKey,
+  orgId: string
+): Promise<Record<string, any>> {
+  if (!orgId) {
+    throw new Error('orgId is required to fetch connection metadata');
+  }
+
+  const nangoSecretKey = process.env.NANGO_SECRET_KEY;
+  if (!nangoSecretKey) {
+    throw new Error('Missing NANGO_SECRET_KEY environment variable');
+  }
+
+  const nangoIntegrationId = getProviderConfig(providerKey).nangoIntegrationId;
+  const nango = new Nango({ secretKey: nangoSecretKey });
+  const connection = await nango.getConnection(nangoIntegrationId, connectionId);
+
+  // Security check: verify metadata org_id matches
+  if (connection.metadata?.org_id && connection.metadata.org_id !== orgId) {
+    throw new Error('Unauthorized: Connection metadata orgId mismatch');
+  }
+
+  return {
+    ...connection.metadata,
+    ...connection.connection_config,
+    ...(connection as any).credentials?.raw,
+  };
+}
+
+// ─── Retry + rate-limit fetch ────────────────────────────────────────────────
+
+export interface BaseFetchOptions {
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  headers?: Record<string, string>
+  body?: unknown
+  /** Max retries on 429 / 5xx. Default 3. */
+  maxRetries?: number
+  /** If true, return the raw Response instead of parsing JSON. */
+  rawResponse?: boolean
+}
+
+/**
+ * Shared HTTP fetch with automatic retry on rate-limits (429) and
+ * server errors (5xx). Every provider fetcher should use this instead
+ * of calling fetch() directly.
+ *
+ * Retry strategy:
+ * - 429: Respect Retry-After header, fall back to 2s.
+ * - 5xx: Exponential backoff (500ms, 1s, 2s, …).
+ *
+ * @param url     - The full API endpoint URL.
+ * @param options - Method, headers, body, retry config.
+ * @returns Parsed JSON response of type T.
+ */
+export async function baseFetch<T = unknown>(
+  url: string,
+  options: BaseFetchOptions = {},
+): Promise<T> {
+  const {
+    method = 'GET',
+    headers = {},
+    body,
+    maxRetries = 3,
+    rawResponse = false,
+  } = options
+
+  let attempt = 0
+
+  while (attempt <= maxRetries) {
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+
+    // ── Rate limited — back off and retry ────────────────────────────────
+    if (res.status === 429) {
+      const retryAfterHeader = res.headers.get('Retry-After')
+      const retryAfterMs = retryAfterHeader
+        ? Number(retryAfterHeader) * 1000
+        : 2000
+      console.warn(
+        `[baseFetch] 429 rate-limited on ${url}, retrying in ${retryAfterMs}ms (attempt ${attempt + 1}/${maxRetries})`,
+      )
+      await sleep(retryAfterMs)
+      attempt++
+      continue
+    }
+
+    // ── Server error — exponential backoff ───────────────────────────────
+    if (res.status >= 500 && attempt < maxRetries) {
+      const backoffMs = 2 ** attempt * 500
+      console.warn(
+        `[baseFetch] ${res.status} server error on ${url}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`,
+      )
+      await sleep(backoffMs)
+      attempt++
+      continue
+    }
+
+    // ── Non-retryable error ──────────────────────────────────────────────
+    if (!res.ok) {
+      const text = await res.text().catch(() => 'Unknown error')
+      const err = new Error(
+        `[baseFetch] ${method} ${url} → ${res.status}: ${text}`,
+      )
+      ;(err as any).status = res.status
+      throw err
+    }
+
+    // ── Success ──────────────────────────────────────────────────────────
+    if (rawResponse) {
+      return res as unknown as T
+    }
+
+    // Handle empty responses (e.g. 204 No Content from DELETE)
+    const contentType = res.headers.get('content-type') || ''
+    if (
+      res.status === 204 ||
+      !contentType.includes('application/json')
+    ) {
+      const text = await res.text()
+      return text as unknown as T
+    }
+
+    return res.json() as Promise<T>
+  }
+
+  throw new Error(`[baseFetch] Max retries (${maxRetries}) exceeded for ${method} ${url}`)
+}
+
+/**
+ * Variant of baseFetch that returns the raw Response object.
+ * Useful for binary downloads (PDFs, images) where we need the stream.
+ */
+export async function baseFetchRaw(
+  url: string,
+  options: Omit<BaseFetchOptions, 'rawResponse'> = {},
+): Promise<Response> {
+  return baseFetch<Response>(url, { ...options, rawResponse: true })
+}
+
+// ─── Metadata safety guard ───────────────────────────────────────────────────
+
+/**
+ * Keys that must never appear in FetchedChunk.metadata.
+ * Content must stay in the `content` field only — never in metadata.
+ */
+const FORBIDDEN_METADATA_KEYS = new Set([
+  'content',
+  'body',
+  'text',
+  'raw',
+  'html',
+  'markdown',
+  'plaintext',
+])
+
+/**
+ * Validates that no content-bearing keys have leaked into metadata.
+ * Call this when constructing FetchedChunk objects to catch bugs early.
+ *
+ * @throws Error if a forbidden key is found.
+ */
+export function assertSafeMetadata(
+  metadata: Record<string, unknown>,
+): void {
+  for (const key of Object.keys(metadata)) {
+    if (FORBIDDEN_METADATA_KEYS.has(key.toLowerCase())) {
+      throw new Error(
+        `[baseFetch] Forbidden metadata key "${key}" — content must never be stored in metadata`,
+      )
+    }
+  }
+}
+
+// ─── Internal helpers ────────────────────────────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}

@@ -19,3 +19,5 @@ export function createSupabaseAnonClient() {
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 }
+export const supabase = createSupabaseAnonClient();
+export const supabaseAdmin = createSupabaseServiceClient();

@@ -19,12 +19,17 @@ function normalizeRole(role: unknown): UserRole {
 
 export function extractOrgClaims(payload: Record<string, unknown>): AtheneIdentity {
   const userId = String(payload.sub || "");
-  const orgId = String(payload.org_id || "");
-  if (!userId || !orgId) throw new Error("Clerk token is missing user or organization claims");
+  const orgId = String(payload.org_id || payload.orgId || payload.o || "");
+  const orgRole = String(payload.org_role || payload.role || "");
+  
+  if (!userId || !orgId) {
+    console.error("[clerk-auth] Missing claims:", { userId, orgId, availablePayload: Object.keys(payload) });
+    throw new Error("Clerk token is missing user or organization claims");
+  }
   return {
     userId,
     orgId,
-    orgRole: normalizeRole(payload.org_role),
+    orgRole: normalizeRole(orgRole),
     orgSlug: typeof payload.org_slug === "string" ? payload.org_slug : null,
     email: typeof payload.email === "string" ? payload.email : null,
     exp: Number(payload.exp || 0),

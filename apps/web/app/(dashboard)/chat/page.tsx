@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { useAuth, useUser, useOrganization } from "@clerk/nextjs";
 import {
     Send,
     Bot,
     User as UserIcon,
     Paperclip,
     Sparkles,
-    Search
+    Search,
+    AlertCircle
 } from "lucide-react";
 
 type Message = {
@@ -20,8 +22,10 @@ type Message = {
 };
 
 export default function ChatInterface() {
+    const router = useRouter();
     const { user } = useUser();
     const { getToken } = useAuth();
+    const { organization, isLoaded: isOrgLoaded } = useOrganization();
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -32,7 +36,7 @@ export default function ChatInterface() {
 
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!input.trim()) return;
+        if (!input.trim() || !organization) return;
         const prompt = input;
         const newUserMsg: Message = { id: Date.now().toString(), role: "user", content: input };
         setMessages(prev => [...prev, newUserMsg]);
@@ -41,6 +45,7 @@ export default function ChatInterface() {
         const assistantId = crypto.randomUUID();
         setMessages(prev => [...prev, { id: assistantId, role: "assistant", content: "", metadata: "athene supervisor" }]);
         try {
+            console.log("[chat] Requesting token for org:", organization.id);
             const token = await getToken();
             const response = await fetch("/api/agent", {
                 method: "POST",
@@ -100,6 +105,22 @@ export default function ChatInterface() {
                     </div>
                 </div>
             </div>
+
+            {/* Org Check */}
+            {isOrgLoaded && !organization && (
+                <div className="mx-6 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-3 text-amber-800 text-sm">
+                        <AlertCircle className="w-5 h-5" />
+                        <span>You need to select or create an organization to use the chat.</span>
+                    </div>
+                    <button 
+                        onClick={() => router.push('/onboarding')}
+                        className="text-xs font-bold uppercase tracking-wider text-amber-700 hover:underline"
+                    >
+                        Go to Onboarding →
+                    </button>
+                </div>
+            )}
 
             {/* Chat Area */}
             <div className="flex-1 overflow-y-auto p-6 scroll-smooth">

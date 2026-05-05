@@ -1,20 +1,18 @@
-import { Receiver } from "@upstash/qstash";
-import { requireEnv } from "@/lib/env";
+import { Receiver } from '@upstash/qstash'
 
-let receiver: Receiver | null = null;
+const receiver = new Receiver({
+  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY!,
+  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY!,
+})
 
-function getReceiver() {
-  if (!receiver) {
-    receiver = new Receiver({
-      currentSigningKey: requireEnv("QSTASH_CURRENT_SIGNING_KEY"),
-      nextSigningKey: requireEnv("QSTASH_NEXT_SIGNING_KEY"),
-    });
+export async function verifyQStashSignature(req: Request): Promise<boolean> {
+  const signature = req.headers.get('upstash-signature')
+  if (!signature) return false
+
+  const body = await req.clone().text()
+  try {
+    return await receiver.verify({ signature, body, url: req.url })
+  } catch {
+    return false
   }
-  return receiver;
-}
-
-export async function verifyQStashRequest(req: Request, body: string) {
-  const signature = req.headers.get("upstash-signature");
-  if (!signature) return false;
-  return getReceiver().verify({ signature, body });
 }
