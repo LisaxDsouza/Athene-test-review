@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Nango from "@nangohq/frontend";
+import { useAuth } from "@clerk/nextjs";
 import {
     Lock,
     ShieldCheck,
@@ -50,6 +51,7 @@ function ProviderIcon({ logoUrl, name }: { logoUrl: string; name: string }) {
 
 export default function SetupWizardPage() {
     const router = useRouter();
+    const { getToken } = useAuth();
     const [step, setStep] = useState<Step>(1);
 
     // Data from API
@@ -171,7 +173,28 @@ export default function SetupWizardPage() {
             if (!token) throw new Error("No token received");
 
             const nango = new Nango({ connectSessionToken: token });
-            await nango.auth(providerKey);
+            const result = await nango.auth(providerKey);
+
+            // ── Persist to Supabase so the admin Integrations page reflects it ──
+            try {
+                const clerkToken = await getToken();
+                await fetch("/api/admin/integrations", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${clerkToken}`,
+                    },
+                    body: JSON.stringify({
+                        source_type: result.providerConfigKey,
+                        nango_connection_id: result.connectionId,
+                        index_mode: "index_live_fetch",
+                        visibility_default: "department",
+                    }),
+                });
+            } catch (persistErr) {
+                // Non-fatal — connection is live in Nango even if DB write fails
+                console.error("[integrations] Failed to persist connection to DB:", persistErr);
+            }
 
             setConnected((prev) => [...prev, providerKey]);
         } catch (err: unknown) {
