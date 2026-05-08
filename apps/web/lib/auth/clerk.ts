@@ -23,9 +23,12 @@ export function extractOrgClaims(payload: Record<string, unknown>): AtheneIdenti
   const orgRole = String(payload.org_role || payload.role || "");
   
   if (!userId || !orgId) {
-    console.error("[clerk-auth] Missing claims:", { userId, orgId, availablePayload: Object.keys(payload) });
+    console.error("[clerk-auth] Missing claims:", { userId, orgId, keys: Object.keys(payload) });
     throw new Error("Clerk token is missing user or organization claims");
   }
+  
+  console.log(`[clerk-auth] Resolved: user=${userId} org=${orgId} role=${orgRole} keys=${Object.keys(payload).join(',')}`);
+  
   return {
     userId,
     orgId,

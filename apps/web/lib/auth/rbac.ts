@@ -26,8 +26,33 @@ export async function resolveUserAccess(userId: string, orgId: string, fallbackR
     .single();
 
   if (memberError && memberError.code !== "PGRST116") throw memberError;
-  const role = (member?.role || fallbackRole || "member") as UserRole;
-  const ownDept = member?.dept_id || "";
+  
+  let role = (member?.role || fallbackRole || "member") as UserRole;
+  let ownDept = member?.dept_id || "";
+
+  // ── AUTO-PROVISION USERS ──────────────────────────────────────────────────
+  // If the user doesn't exist in the DB, sync them using Clerk's fallbackRole 
+  // or default to "member". This prevents 403s and ensures accurate RBAC tracking.
+  if (!member) {
+      console.log(`[rbac] Auto-provisioning user: ${userId} in org ${orgId} with role ${role}`);
+      const { data: newMember, error: insertError } = await supabase
+          .from("org_members")
+          .insert({
+              user_id: userId,
+              org_id: orgId,
+              role: role
+          })
+          .select("role, dept_id")
+          .single();
+      
+      if (!insertError && newMember) {
+          role = newMember.role as UserRole;
+          ownDept = newMember.dept_id || "";
+      } else if (insertError) {
+          console.error(`[rbac] Failed to auto-provision user ${userId}:`, insertError);
+      }
+  }
+
   let grantId: string | null = null;
   let grantedDeptIds: string[] = [];
 
