@@ -13,8 +13,8 @@ Enterprise Multi-Agent Orchestration Platform — Next.js frontend with Clerk au
 **1. Clone the repo**
 
 ```bash
-git clone <repo-url>
-cd athene-ai-core
+git clone https://github.com/LisaxDsouza/Athene-test-review.git
+cd Athene-test-review
 ```
 
 **2. Install dependencies**
@@ -48,7 +48,8 @@ Ask the project lead for the shared dev values for these keys.
 **4. Run the dev server**
 
 ```bash
-pnpm dev
+cd apps/web/
+pnpm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
@@ -96,3 +97,33 @@ pnpm build    # Production build
 pnpm start    # Start production server
 pnpm lint     # Run ESLint
 ```
+
+## Contributing Workflow
+
+We follow a **branch-based Pull Request** workflow for contributions. Here is how you can contribute:
+
+1. **Clone the Repository**
+   Clone the repository to your local machine (as described in the Setup section).
+
+2. **Create a Feature Branch**
+   Create a new branch for your feature or bugfix off of the main branch:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+3. **Make Changes and Test**
+   Make your code changes, and ensure the app runs correctly by starting the dev server (`pnpm dev`) and running the linter (`pnpm lint`).
+
+4. **Commit and Push**
+   Commit your changes with clear, descriptive messages and push your branch to the remote repository:
+   ```bash
+   git add .
+   git commit -m "feat: add your feature description"
+   git push origin feature/your-feature-name
+   ```
+
+5. **Submit a Pull Request (PR)**
+   Go to the repository on GitHub and click **"New Pull Request"**. 
+   - Set the base branch to `main`.
+   - Set the compare branch to your newly pushed feature branch.
+   - Provide a clear description of your changes and submit the PR for review. Once approved by the maintainers, your changes will be merged into the main branch!
