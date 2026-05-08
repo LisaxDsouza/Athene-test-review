@@ -1,99 +1,129 @@
- # AtheneAI Setup Guide 
+# Athene AI Core
 
-Follow these straightforward steps to get the AtheneAI construction site running on your local machine. 
-   
-### 1. Pull the code
-```bash  
-git clone https://github.com/Athene-AI-Dev/at hene-app.git 
-cd athene-app    
-```  
-     
-### 2. Install and Initialize  
-Install the foundation and prepare env ironment variables:  
-```bash 
-npm install
-cp .env.example .env
-```
+Enterprise Multi-Agent Orchestration Platform — Next.js frontend with Clerk auth and Nango integrations.
 
-### 3. Core Dependencies 
-These packages provide the backbone for Auth, Database, and AI orchestration:
-```bash 
-# Core
-npm install @clerk/nextjs @supabase/supabase-js @langchain/langgraph @langchain/core
-# Integrations
-npm install @nangohq/node @upstash/qstash @upstash/redis
-# LLM providers
-npm install @anthropic-ai/sdk openai @google/generative-ai
-# Utils
-npm install zod openai-tokenizer
-# Dev
-npm install -D @types/node prettier eslint-config-prettier
-```
+## Prerequisites
 
-### 4. Install shadcn/ui
-The design system is powered by shadcn/ui. The following components are already pre-installed:
+- **Node.js** v20+
+- **pnpm** v9+ — install with `npm install -g pnpm`
+- Access to the team's Clerk and Nango dev credentials (ask the project lead)
+
+## Setup
+
+**1. Clone the repo**
+
 ```bash
-npx shadcn@latest init
-npx shadcn@latest add button card dialog dropdown-menu input label select textarea sonner sheet sidebar table tabs
+git clone https://github.com/LisaxDsouza/Athene-test-review.git
+cd Athene-test-review
 ```
 
-### 5. Configured Tooling
-The project is strictly configured for consistency:
-- **tsconfig.json**: Strict mode enabled with `@/*` path aliases.
-- **.prettierrc**: 2-space indent, single quotes, and trailing commas.
-- **.eslintrc.json**: Extends `next/core-web-vitals` + `prettier`.
+**2. Install dependencies**
 
-### 6. Environment Variables (.env.example)
-Ensure your `.env` file includes the following keys:
+```bash
+pnpm install
+```
+
+**3. Configure environment variables**
+
+Create a `.env.local` file in the project root:
+
 ```env
-# Clerk
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
+# Clerk — get these from the Clerk dashboard (Development environment)
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
 
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
-ENCRYPTION_SECRET=
+# Clerk redirect config (copy as-is)
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL=/
+NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL=/onboarding
+NEXT_PUBLIC_CLERK_AFTER_SIGN_OUT_URL=/sign-in
 
-# Nango 
-NANGO_SECRET_KEY=
-
-# QStash
-QSTASH_TOKEN=
-QSTASH_CURRENT_SIGNING_KEY=
-QSTASH_NEXT_SIGNING_KEY=
-
-# Redis
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
-
-# LLM (platform fallback)
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
+# Nango — get the secret key from the Nango dashboard
+NANGO_SECRET_KEY=...
 ```
 
-### 7. Run locally
+Ask the project lead for the shared dev values for these keys.
+
+**4. Run the dev server**
+
 ```bash
-npm run dev
+cd apps/web/
+pnpm run dev
 ```
-👉 Build verification: `npm run build`
 
+Open [http://localhost:3000](http://localhost:3000).
 
-## Supabase migrations (ATH-20)
-Run in order on a fresh database:
-1. `supabase/migrations/001_schema.sql`
-2. `supabase/migrations/002_rls_policies.sql`
-3. `supabase/migrations/003_indexes.sql`
-4. `supabase/migrations/004_vector_indexes.sql`
-5. `supabase/migrations/005_org_api_keys.sql`
-6. `supabase/migrations/006_org_integrations.sql`
-7. `supabase/migrations/007_user_automations.sql`
+## Project Structure
 
-Then run policy checks with `supabase/tests/rls-policies.test.sql`.
+```
+app/
+  (auth)/          # Sign in / sign up pages (Clerk)
+  (dashboard)/     # Protected app — sidebar layout
+    page.tsx       # Command Center (/)
+    chat/          # Athene Intelligence chat (/chat)
+    agents/        # Agent Fleet (/agents)
+    sources/       # Knowledge Base (/sources)
+    integrations/  # Nango OAuth integrations (/integrations)
+    teams/         # Teams & access control (/teams)
+    settings/      # Workspace settings (/settings)
+  onboarding/      # Org setup + integration wizard
+  api/nango/       # Nango session token endpoint
+components/ui/     # Shared UI components
+lib/utils.ts       # cn() utility
+middleware.ts      # Clerk auth guard
+```
 
+## Tech Stack
 
-## ATH-22 scaffold notes
-- `middleware.ts` re-exports existing `proxy.ts` to support Next.js middleware entrypoint naming.
-- `.env.example` contains full local bootstrap variables for Clerk, Supabase, Nango, QStash, Redis, and LLM providers.
-- `openai-tokenizer` could not be installed from the registry in this environment; continue using `gpt-tokenizer` unless package availability changes.
+| Layer | Library |
+|-------|---------|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript 5 |
+| Styling | Tailwind CSS 4 |
+| UI primitives | shadcn / Base UI + CVA |
+| Auth | Clerk 7 (multi-tenant orgs) |
+| Integrations | Nango 0.69 (OAuth) |
+
+## Current State
+
+This is a UI-complete MVP. All data is mocked — there is no database or backend CRUD yet. The only real API endpoint is `/api/nango/session` for generating Nango connection tokens.
+
+## Common Scripts
+
+```bash
+pnpm dev      # Start dev server (localhost:3000)
+pnpm build    # Production build
+pnpm start    # Start production server
+pnpm lint     # Run ESLint
+```
+
+## Contributing Workflow
+
+We follow a **branch-based Pull Request** workflow for contributions. Here is how you can contribute:
+
+1. **Clone the Repository**
+   Clone the repository to your local machine (as described in the Setup section).
+
+2. **Create a Feature Branch**
+   Create a new branch for your feature or bugfix off of the main branch:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+3. **Make Changes and Test**
+   Make your code changes, and ensure the app runs correctly by starting the dev server (`pnpm dev`) and running the linter (`pnpm lint`).
+
+4. **Commit and Push**
+   Commit your changes with clear, descriptive messages and push your branch to the remote repository:
+   ```bash
+   git add .
+   git commit -m "feat: add your feature description"
+   git push origin feature/your-feature-name
+   ```
+
+5. **Submit a Pull Request (PR)**
+   Go to the repository on GitHub and click **"New Pull Request"**. 
+   - Set the base branch to `main`.
+   - Set the compare branch to your newly pushed feature branch.
+   - Provide a clear description of your changes and submit the PR for review. Once approved by the maintainers, your changes will be merged into the main branch!
