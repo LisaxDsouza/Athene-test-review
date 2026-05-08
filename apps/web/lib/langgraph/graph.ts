@@ -196,7 +196,11 @@ export function createInitialState(params: {
 export async function* runAtheneGraph(state: typeof AtheneState.State) {
   const graph = await getAgentGraph();
   const stream = await graph.stream(state, {
-    configurable: { thread_id: state.thread_id },
+    configurable: { 
+      thread_id: state.thread_id,
+      org_id: state.org_id,
+      user_id: state.user_id,
+    },
     streamMode: "values",
   });
 

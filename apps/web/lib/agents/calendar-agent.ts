@@ -14,7 +14,7 @@
 // ============================================================
 
 import { z } from "zod";
-import { getModel } from "../langgraph/llm-factory";
+import { resolveModelClient } from "../langgraph/llm-factory";
 import type { AtheneStateType, AtheneStateUpdate } from "../langgraph/state";
 import { AIMessage } from "@langchain/core/messages";
 
@@ -136,7 +136,8 @@ User Timezone: ${timezone}`;
     dateContext
   ).replace("{timezone}", timezone);
 
-  const draftModel = getModel().withStructuredOutput(calendarEventSchema, {
+  const { client } = await resolveModelClient(state.org_id, "medium");
+  const draftModel = client.withStructuredOutput(calendarEventSchema, {
     name: "draft_calendar_event",
   });
 

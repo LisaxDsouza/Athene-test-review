@@ -77,6 +77,7 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
     const user_id = config.configurable?.user_id;
 
     if (!thread_id || !org_id || !user_id) {
+      console.error("[SupabaseCheckpointer] Missing config values! configurable =", config.configurable);
       throw new Error("Missing thread_id, org_id, or user_id in runnable config");
     }
 
@@ -84,6 +85,7 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
       thread_id,
       org_id,
       user_id,
+      checkpoint_id: checkpoint.id,
       checkpoint,
     });
 
@@ -98,6 +100,16 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
         checkpoint_id: checkpoint.id,
       },
     };
+  }
+
+  async putWrites(
+    _config: RunnableConfig,
+    _writes: any[],
+    _task_id: string
+  ): Promise<void> {
+    // Current schema doesn't support task-level writes. 
+    // In many simple graphs, this can be a no-op if we only care about checkpoints.
+    return Promise.resolve();
   }
 
   /**

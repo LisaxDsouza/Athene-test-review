@@ -1,6 +1,7 @@
 import { requireAdmin, jsonError } from "@/lib/api/auth";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { requireEnv } from "@/lib/env";
+import { invalidateByokCache } from "@/lib/langgraph/llm-factory";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,10 @@ export async function POST(req: Request) {
       added_by: identity.userId,
     }, { onConflict: "org_id,provider" }).select("id, provider, label, key_hint, is_active").single();
     if (error) throw error;
+
+    // Invalidate the in-memory cache so agents pick up the new key immediately
+    invalidateByokCache(identity.orgId);
+
     return Response.json(data);
   } catch (error) {
     return jsonError(error);
@@ -68,6 +73,10 @@ export async function DELETE(req: Request) {
     if (!provider) return Response.json({ error: "provider is required" }, { status: 400 });
     const { error } = await createSupabaseServiceClient().from("org_api_keys").update({ is_active: false }).eq("org_id", identity.orgId).eq("provider", provider);
     if (error) throw error;
+
+    // Invalidate the in-memory cache so agents stop using the deleted key immediately
+    invalidateByokCache(identity.orgId);
+
     return Response.json({ ok: true });
   } catch (error) {
     return jsonError(error);
