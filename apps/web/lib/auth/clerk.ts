@@ -29,20 +29,24 @@ export function extractOrgClaims(payload: Record<string, unknown>): AtheneIdenti
     oId = rawO;
   }
 
-  const orgId = String(payload.org_id || payload.orgId || oId || "");
+  const orgId   = String(payload.org_id || payload.orgId || oId || "");
   const orgRole = String(payload.org_role || oRole || payload.role || "");
   const orgSlug = typeof payload.org_slug === "string" ? payload.org_slug : (oSlug || null);
-  
-  if (!userId || !orgId) {
-    console.error("[clerk-auth] Missing claims. Full payload:", JSON.stringify(payload));
-    throw new Error("Clerk token is missing user or organization claims");
+
+  if (!userId) {
+    console.error("[clerk-auth] Missing userId. Full payload:", JSON.stringify(payload));
+    throw new Error("Clerk token is missing user claims");
   }
-  
-  console.log(`[clerk-auth] Resolved: user=${userId} org=${orgId} role=${orgRole} rawPayload=${JSON.stringify(payload)}`);
-  
+
+  if (!orgId) {
+    console.warn("[clerk-auth] No orgId in token — user is not in an org. userId:", userId);
+  }
+
+  console.log(`[clerk-auth] Resolved: user=${userId} org=${orgId} role=${orgRole}`);
+
   return {
     userId,
-    orgId,
+    orgId:   orgId || "no-org",
     orgRole: normalizeRole(orgRole),
     orgSlug,
     email: typeof payload.email === "string" ? payload.email : null,

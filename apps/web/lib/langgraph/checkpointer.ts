@@ -3,6 +3,9 @@ import type { RunnableConfig } from "@langchain/core/runnables";
 import { supabaseAdmin } from "../supabase/server";
 
 export class SupabaseCheckpointer extends BaseCheckpointSaver {
+  // In-memory fallback for putWrites — no DB column needed
+  private _pendingWrites: Map<string, [string, string, unknown][]> = new Map();
+
   constructor(serde?: SerializerProtocol) {
     super(serde);
   }
@@ -25,6 +28,7 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
       config,
       checkpoint: data.checkpoint as Checkpoint,
       metadata: {},
+      pendingWrites: (this._pendingWrites.get(thread_id) ?? []) as CheckpointTuple["pendingWrites"],
     };
   }
 
@@ -51,6 +55,7 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
     }
 
     const { data, error } = await query;
+    const pendingWrites = this._pendingWrites.get(thread_id) ?? [];
 
     async function* generate() {
       if (!error && data) {
@@ -59,6 +64,7 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
             config,
             checkpoint: row.checkpoint as Checkpoint,
             metadata: {},
+            pendingWrites: pendingWrites as CheckpointTuple["pendingWrites"],
           };
         }
       }
@@ -73,11 +79,11 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
     _metadata: CheckpointMetadata
   ): Promise<RunnableConfig> {
     const thread_id = config.configurable?.thread_id;
-    const org_id = config.configurable?.org_id;
-    const user_id = config.configurable?.user_id;
+    const org_id    = config.configurable?.org_id   ?? "no-org";
+    const user_id   = config.configurable?.user_id  ?? "no-user";
 
-    if (!thread_id || !org_id || !user_id) {
-      throw new Error("Missing thread_id, org_id, or user_id in runnable config");
+    if (!thread_id) {
+      throw new Error("Missing thread_id in runnable config");
     }
 
     const { error } = await supabaseAdmin.from("langgraph_checkpoints").insert({
@@ -92,6 +98,9 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
       throw error;
     }
 
+    // Clear pending writes for this thread once a full checkpoint is saved
+    this._pendingWrites.delete(thread_id);
+
     return {
       configurable: {
         ...config.configurable,
@@ -101,7 +110,28 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
   }
 
   /**
-   * Convenience method for the API routes to get the full state without a RunnableConfig.
+   * Required by @langchain/langgraph 0.2.x
+   * Stores intermediate node writes in memory (no DB column needed).
+   */
+  async putWrites(
+    config: RunnableConfig,
+    writes: [string, unknown][],
+    taskId: string
+  ): Promise<void> {
+    const thread_id = config.configurable?.thread_id;
+    if (!thread_id) return;
+
+    const existing = this._pendingWrites.get(thread_id) ?? [];
+    const newWrites: [string, string, unknown][] = writes.map(([channel, value]) => [
+      taskId,
+      channel,
+      value,
+    ]);
+    this._pendingWrites.set(thread_id, [...existing, ...newWrites]);
+  }
+
+  /**
+   * Convenience method for API routes to get the full state without a RunnableConfig.
    */
   async loadLatest(threadId: string): Promise<any | null> {
     const { data, error } = await supabaseAdmin
@@ -113,13 +143,12 @@ export class SupabaseCheckpointer extends BaseCheckpointSaver {
       .maybeSingle();
 
     if (error || !data) return null;
-    
-    // The state is nested in the checkpoint.channel_values
+
     const checkpoint = data.checkpoint as any;
     return {
-        ...checkpoint.channel_values,
-        org_id: data.org_id,
-        user_id: data.user_id,
+      ...checkpoint.channel_values,
+      org_id: data.org_id,
+      user_id: data.user_id,
     };
   }
 }
