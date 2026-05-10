@@ -38,6 +38,23 @@ export async function resolveUserAccess(
     .single()
 
   if (error || !data) {
+    // No org_members row yet — auto-provision one with the Clerk role as default.
+    // This is the safety net for users who sign in before the Clerk webhook fires,
+    // or for orgs that were set up before the webhook was registered.
+    if (fallbackRole) {
+      await supabaseAdmin
+        .from('org_members')
+        .upsert(
+          { user_id: userId, org_id: orgId, role: fallbackRole },
+          { onConflict: 'user_id,org_id', ignoreDuplicates: true },
+        )
+        .then(({ error: upsertErr }) => {
+          if (upsertErr) {
+            console.warn('[rbac] Auto-provision org_members failed:', upsertErr.message)
+          }
+        })
+    }
+
     const fallback: UserAccess = {
       role: fallbackRole,
       dept_id: null,
