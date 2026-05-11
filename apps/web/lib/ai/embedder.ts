@@ -15,12 +15,15 @@ function getOpenAI() {
  * Generates an embedding for the given text using OpenAI.
  * Model: text-embedding-3-small (1536 dimensions)
  */
-export async function embed(text: string): Promise<number[]> {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is not defined in environment variables");
+export async function embed(text: string, apiKey?: string): Promise<number[]> {
+  const finalKey = apiKey || process.env.OPENAI_API_KEY;
+  
+  if (!finalKey) {
+    throw new Error("OpenAI API key is not defined (checked BYOK and platform env)");
   }
 
-  const res = await getOpenAI().embeddings.create({
+  const client = new OpenAI({ apiKey: finalKey });
+  const res = await client.embeddings.create({
     model: "text-embedding-3-small",
     input: text,
   });

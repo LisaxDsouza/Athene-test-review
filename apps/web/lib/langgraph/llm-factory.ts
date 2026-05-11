@@ -1,4 +1,4 @@
-﻿/**
+/**
  * lib/langgraph/llm-factory.ts
  *
  * resolveModelClient — selects the right LLM client for a given request.
@@ -109,11 +109,11 @@ export function invalidateByokCache(orgId: string): void {
 /**
  * Fetches and decrypts the active BYOK key for the given org.
  * Results are cached for BYOK_CACHE_TTL_MS. Returns null when no
- * active key exists or KMS_SECRET is not configured.
+ * active key exists or ENCRYPTION_SECRET is not configured.
  */
-async function fetchByokKey(orgId: string): Promise<ByokResult | null> {
-  const kmsSecret = process.env.KMS_SECRET;
-  if (!kmsSecret) return null;
+export async function fetchByokKey(orgId: string): Promise<ByokResult | null> {
+  const encryptionSecret = process.env.ENCRYPTION_SECRET || process.env.KMS_SECRET;
+  if (!encryptionSecret) return null;
 
   // Check cache
   const cached = _byokCache.get(orgId);
@@ -121,21 +121,26 @@ async function fetchByokKey(orgId: string): Promise<ByokResult | null> {
     return cached.result;
   }
 
+  // Use the get_decrypted_llm_key(p_org_id, p_kms_key) RPC defined in the migration
   const { data, error } = await supabaseAdmin.rpc("get_decrypted_llm_key", {
-    p_org_id:  orgId,
-    p_kms_key: kmsSecret,
+    p_org_id: orgId,
+    p_kms_key: encryptionSecret
   });
 
-  if (error) {
-    console.warn("[llm-factory] BYOK lookup failed, falling back to platform key:", error.message);
-    // Cache the null result too — avoids hammering DB on a broken key
+  if (error || !data || (data as any[]).length === 0) {
+    if (error) console.warn("[llm-factory] BYOK lookup failed:", error.message);
     _byokCache.set(orgId, { result: null, cachedAt: Date.now() });
     return null;
   }
 
-  const row = (data as { provider: LLMProvider; plaintext: string } | null) ?? null;
-  _byokCache.set(orgId, { result: row, cachedAt: Date.now() });
-  return row;
+  const row = (data as any[])[0];
+  const result = {
+    provider: row.provider as LLMProvider,
+    plaintext: row.plaintext as string
+  };
+
+  _byokCache.set(orgId, { result, cachedAt: Date.now() });
+  return result;
 }
 
 // ─── Client instantiation ──────────────────────────────────────────────────

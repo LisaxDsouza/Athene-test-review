@@ -1,5 +1,6 @@
 import type { AtheneStateType, AtheneStateUpdate } from "../langgraph/state";
 import { vectorSearch } from "../tools/vector-search";
+import { fetchByokKey } from "../langgraph/llm-factory";
 
 export async function retrievalAgent(state: AtheneStateType): Promise<AtheneStateUpdate> {
   const { org_id, user_id, user_role, messages } = state;
@@ -17,6 +18,9 @@ export async function retrievalAgent(state: AtheneStateType): Promise<AtheneStat
   console.log("[retrieval-agent] Starting vector search for query:", query);
   console.log("[retrieval-agent] OPENAI_API_KEY present:", !!process.env.OPENAI_API_KEY);
 
+  const byok = await fetchByokKey(org_id);
+  const apiKey = byok?.provider === "openai" ? byok.plaintext : undefined;
+
   try {
     console.log("[retrieval-agent] Calling embed...");
     const results = await Promise.race([
@@ -26,6 +30,7 @@ export async function retrievalAgent(state: AtheneStateType): Promise<AtheneStat
         user_role: user_role ?? "member",
         query,
         topK: 8,
+        apiKey,
       }),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error("vectorSearch timed out after 15s")), 15000)
