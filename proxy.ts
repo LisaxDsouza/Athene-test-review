@@ -7,6 +7,7 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/onboarding(.*)",
   "/api/webhooks(.*)",  // Clerk/Svix — signature verified inside handler
   "/api/worker(.*)",   // QStash workers — signature verified inside handler
 ])

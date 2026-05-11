@@ -2,7 +2,6 @@ import { redis } from '@/lib/redis/client'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { mapRole, type AppRole } from './clerk'
 
-// Broader role union used by UI components (includes super_user for internal tooling)
 export type UserRole = AppRole | 'super_user'
 
 export interface UserAccess {
@@ -14,54 +13,63 @@ export interface UserAccess {
 
 const RBAC_CACHE_TTL_SECONDS = 300
 
+/** Resolve (or create) the Supabase UUID for a Clerk org ID. */
+async function resolveOrgUuid(clerkOrgId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from('organizations')
+    .select('id')
+    .eq('clerk_org_id', clerkOrgId)
+    .single()
+  return data?.id ?? null
+}
+
 export async function resolveUserAccess(
-  userId: string,
-  orgId: string,
+  clerkUserId: string,
+  clerkOrgId: string,
   clerkRole?: string | null,
 ): Promise<UserAccess> {
-  const cacheKey = `user_access:${userId}:${orgId}`
+  const cacheKey = `user_access:${clerkUserId}:${clerkOrgId}`
 
   try {
     const cached = await redis.get<UserAccess>(cacheKey)
     if (cached) return cached
   } catch {
-    // ignore cache failures
+    // ignore cache failures — fall through to DB
   }
 
   const fallbackRole = mapRole(clerkRole)
 
+  const orgUuid = await resolveOrgUuid(clerkOrgId)
+
+  if (!orgUuid) {
+    // Org row doesn't exist yet (webhook hasn't fired). Return fallback.
+    const fallback: UserAccess = { role: fallbackRole, dept_id: null, accessible_dept_ids: [], bi_grant_id: null }
+    return fallback
+  }
+
   const { data, error } = await supabaseAdmin
     .from('org_members')
-    .select('dept_id, role, bi_access_grants(id, dept_id, is_active, expires_at)')
-    .eq('user_id', userId)
-    .eq('org_id', orgId)
+    .select('id, dept_id, role, bi_access_grants(id, dept_id, is_active, expires_at)')
+    .eq('clerk_user_id', clerkUserId)
+    .eq('org_id', orgUuid)
     .single()
 
   if (error || !data) {
-    // No org_members row yet — auto-provision one with the Clerk role as default.
-    // This is the safety net for users who sign in before the Clerk webhook fires,
-    // or for orgs that were set up before the webhook was registered.
+    // Auto-provision the org_members row as a safety net
     if (fallbackRole) {
       await supabaseAdmin
         .from('org_members')
         .upsert(
-          { user_id: userId, org_id: orgId, role: fallbackRole },
-          { onConflict: 'user_id,org_id', ignoreDuplicates: true },
+          { clerk_user_id: clerkUserId, org_id: orgUuid, role: fallbackRole },
+          { onConflict: 'org_id,clerk_user_id', ignoreDuplicates: true },
         )
-        .then(({ error: upsertErr }) => {
-          if (upsertErr) {
-            console.warn('[rbac] Auto-provision org_members failed:', upsertErr.message)
-          }
+        .then(({ error: e }) => {
+          if (e) console.warn('[rbac] Auto-provision org_members failed:', e.message)
         })
     }
 
-    const fallback: UserAccess = {
-      role: fallbackRole,
-      dept_id: null,
-      accessible_dept_ids: [],
-      bi_grant_id: null,
-    }
-    await redis.set(cacheKey, fallback, { ex: RBAC_CACHE_TTL_SECONDS })
+    const fallback: UserAccess = { role: fallbackRole, dept_id: null, accessible_dept_ids: [], bi_grant_id: null }
+    try { await redis.set(cacheKey, fallback, { ex: RBAC_CACHE_TTL_SECONDS }) } catch {}
     return fallback
   }
 
@@ -77,6 +85,6 @@ export async function resolveUserAccess(
     bi_grant_id: active[0]?.id ?? null,
   }
 
-  await redis.set(cacheKey, resolved, { ex: RBAC_CACHE_TTL_SECONDS })
+  try { await redis.set(cacheKey, resolved, { ex: RBAC_CACHE_TTL_SECONDS }) } catch {}
   return resolved
 }

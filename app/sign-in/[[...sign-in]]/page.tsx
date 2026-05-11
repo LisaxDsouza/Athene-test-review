@@ -2,8 +2,8 @@ import { SignIn } from "@clerk/nextjs";
 
 export default function SignInPage() {
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
-      <SignIn />
+    <div className="flex items-center justify-center min-h-screen bg-[var(--background)]">
+      <SignIn afterSignInUrl="/chat" afterSignUpUrl="/onboarding" />
     </div>
   );
 }

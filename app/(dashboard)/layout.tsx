@@ -18,7 +18,7 @@ export default async function DashboardLayout({
   // Dashboard requires an active org — Clerk may return null orgId if the
   // user hasn't joined/selected one. Send them to sign-in to pick one.
   if (!orgId) {
-    redirect("/sign-in");
+    redirect("/onboarding");
   }
 
   const userAccess = await resolveUserAccess(userId, orgId, orgRole);

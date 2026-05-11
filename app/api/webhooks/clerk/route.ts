@@ -1,16 +1,12 @@
 // app/api/webhooks/clerk/route.ts
 //
-// Handles Clerk organization membership lifecycle events so that every
-// user who joins or leaves an org has a matching row in org_members.
+// Handles Clerk org + membership lifecycle events.
 //
 // Events handled:
-//   organizationMembership.created → upsert row with Clerk role as default
-//   organizationMembership.updated → update role when admin changes it in Clerk
-//   organizationMembership.deleted → remove row + evict Redis cache
-//
-// Setup: add this URL in Clerk Dashboard → Webhooks:
-//   https://<your-domain>/api/webhooks/clerk
-// Required env var: CLERK_WEBHOOK_SECRET (the signing secret from Clerk)
+//   organization.created            → create row in organizations
+//   organizationMembership.created  → upsert org_members (uses clerk_user_id + org UUID lookup)
+//   organizationMembership.updated  → update role
+//   organizationMembership.deleted  → remove row + evict Redis cache
 
 import { NextRequest, NextResponse } from 'next/server'
 import { Webhook } from 'svix'
@@ -18,26 +14,50 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { redis } from '@/lib/redis/client'
 import { mapRole } from '@/lib/auth/clerk'
 
-// ── Clerk webhook payload types ────────────────────────────────────────────
+interface OrgCreatedData {
+  id: string           // Clerk org ID e.g. "org_xxx"
+  name: string
+  slug: string | null
+}
 
 interface OrgMembershipData {
-  organization: { id: string }
-  public_user_data: { user_id: string }
-  role: string         // e.g. "org:member", "org:admin"
+  organization: { id: string; name: string; slug: string | null }
+  public_user_data: { user_id: string; first_name?: string; last_name?: string; identifier?: string }
+  role: string
 }
 
 interface ClerkWebhookEvent {
   type: string
-  data: OrgMembershipData
+  data: OrgCreatedData & OrgMembershipData
 }
 
-// ── Cache key helper ────────────────────────────────────────────────────────
-
-function cacheKey(userId: string, orgId: string) {
-  return `user_access:${userId}:${orgId}`
+function cacheKey(clerkUserId: string, clerkOrgId: string) {
+  return `user_access:${clerkUserId}:${clerkOrgId}`
 }
 
-// ── Handler ─────────────────────────────────────────────────────────────────
+/** Look up the Supabase UUID for a Clerk org ID. Creates the org row if missing. */
+async function resolveOrgUuid(clerkOrgId: string, name: string, slug: string | null): Promise<string | null> {
+  const { data: existing } = await supabaseAdmin
+    .from('organizations')
+    .select('id')
+    .eq('clerk_org_id', clerkOrgId)
+    .single()
+
+  if (existing) return existing.id
+
+  const safeSlug = slug ?? clerkOrgId
+  const { data: created, error } = await supabaseAdmin
+    .from('organizations')
+    .insert({ clerk_org_id: clerkOrgId, name, slug: safeSlug })
+    .select('id')
+    .single()
+
+  if (error) {
+    console.error('[clerk-webhook] Failed to create organization:', error.message)
+    return null
+  }
+  return created.id
+}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const secret = process.env.CLERK_WEBHOOK_SECRET
@@ -46,7 +66,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
   }
 
-  // 1. Verify Svix signature
   const svix_id        = req.headers.get('svix-id')
   const svix_timestamp = req.headers.get('svix-timestamp')
   const svix_signature = req.headers.get('svix-signature')
@@ -70,51 +89,72 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const { type, data } = event
-  const orgId  = data?.organization?.id
-  const userId = data?.public_user_data?.user_id
-  const clerkRole = data?.role
 
-  if (!orgId || !userId) {
+  // ── organization.created ──────────────────────────────────────────────────
+  if (type === 'organization.created') {
+    const { id: clerkOrgId, name, slug } = data
+    const safeSlug = slug ?? clerkOrgId
+    const { error } = await supabaseAdmin
+      .from('organizations')
+      .upsert(
+        { clerk_org_id: clerkOrgId, name, slug: safeSlug },
+        { onConflict: 'clerk_org_id', ignoreDuplicates: true }
+      )
+    if (error) console.error('[clerk-webhook] org.created upsert failed:', error.message)
+    else console.log(`[clerk-webhook] org.created: upserted org clerk_id=${clerkOrgId}`)
+    return NextResponse.json({ received: true })
+  }
+
+  // ── membership events ─────────────────────────────────────────────────────
+  const clerkOrgId  = data?.organization?.id
+  const clerkUserId = data?.public_user_data?.user_id
+  const clerkRole   = data?.role
+
+  if (!clerkOrgId || !clerkUserId) {
     return NextResponse.json({ error: 'Missing org or user in payload' }, { status: 400 })
   }
 
-  // 2. Route by event type
   if (type === 'organizationMembership.created' || type === 'organizationMembership.updated') {
     const role = mapRole(clerkRole) ?? 'member'
+    const orgName = data?.organization?.name ?? clerkOrgId
+    const orgSlug = data?.organization?.slug ?? null
+
+    const orgUuid = await resolveOrgUuid(clerkOrgId, orgName, orgSlug)
+    if (!orgUuid) return NextResponse.json({ error: 'Could not resolve org UUID' }, { status: 500 })
 
     const { error } = await supabaseAdmin
       .from('org_members')
       .upsert(
-        { user_id: userId, org_id: orgId, role },
-        { onConflict: 'user_id,org_id', ignoreDuplicates: false }
+        { clerk_user_id: clerkUserId, org_id: orgUuid, role },
+        { onConflict: 'org_id,clerk_user_id', ignoreDuplicates: false }
       )
 
     if (error) {
-      console.error(`[clerk-webhook] Failed to upsert org_members for ${userId}/${orgId}:`, error.message)
+      console.error(`[clerk-webhook] Failed to upsert org_members:`, error.message)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Evict stale cache so next request picks up the new role
-    await redis.del(cacheKey(userId, orgId)).catch(() => null)
-
-    console.log(`[clerk-webhook] ${type}: upserted org_members user=${userId} org=${orgId} role=${role}`)
+    await redis.del(cacheKey(clerkUserId, clerkOrgId)).catch(() => null)
+    console.log(`[clerk-webhook] ${type}: user=${clerkUserId} org=${clerkOrgId} role=${role}`)
   }
 
   if (type === 'organizationMembership.deleted') {
-    const { error } = await supabaseAdmin
-      .from('org_members')
-      .delete()
-      .eq('user_id', userId)
-      .eq('org_id', orgId)
+    const { data: org } = await supabaseAdmin
+      .from('organizations')
+      .select('id')
+      .eq('clerk_org_id', clerkOrgId)
+      .single()
 
-    if (error) {
-      console.error(`[clerk-webhook] Failed to delete org_members for ${userId}/${orgId}:`, error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (org) {
+      await supabaseAdmin
+        .from('org_members')
+        .delete()
+        .eq('clerk_user_id', clerkUserId)
+        .eq('org_id', org.id)
     }
 
-    await redis.del(cacheKey(userId, orgId)).catch(() => null)
-
-    console.log(`[clerk-webhook] deleted org_members user=${userId} org=${orgId}`)
+    await redis.del(cacheKey(clerkUserId, clerkOrgId)).catch(() => null)
+    console.log(`[clerk-webhook] deleted org_members user=${clerkUserId} org=${clerkOrgId}`)
   }
 
   return NextResponse.json({ received: true })
