@@ -31,12 +31,12 @@ export async function crossDeptAgent(
   config: RunnableConfig,
 ): Promise<AtheneStateUpdate> {
   const { org_id, user_id, user_role } = state
-
+  
   // ⚠️ HARD ROLE CHECK — must be the first statement
-  if (user_role !== 'super_user' && user_role !== 'admin') {
+  if (user_role !== 'bi_analyst' && user_role !== 'super_user' && user_role !== 'admin') {
     return {
       messages: [
-        new AIMessage('Access Denied: Cross-department analysis is restricted to BI Analysts.'),
+        new AIMessage('Access Denied: Cross-department analysis is restricted to BI Analysts and Admins.'),
       ],
     }
   }
