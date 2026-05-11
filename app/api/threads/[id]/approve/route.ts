@@ -90,7 +90,7 @@ export async function POST(
   }
 
   const stateValues = currentState.values as Record<string, unknown>;
-  if (stateValues.orgId !== clerkOrgId || stateValues.userId !== clerkUserId) {
+  if (stateValues.org_id !== clerkOrgId || stateValues.user_id !== clerkUserId) {
     return NextResponse.json(
       { error: "Thread not found or you are not the owner" },
       { status: 403 },
