@@ -13,9 +13,9 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm";        -- trigram text search fallback
 -- Custom ENUM types
 -- ============================================================
 
-CREATE TYPE user_role AS ENUM ('member', 'super_user', 'admin');
+CREATE TYPE IF NOT EXISTS user_role AS ENUM ('member', 'super_user', 'admin');
 
-CREATE TYPE visibility_level AS ENUM (
+CREATE TYPE IF NOT EXISTS visibility_level AS ENUM (
   'org_wide',        -- visible to everyone in the org
   'department',      -- visible only to members of that department
   'bi_accessible',   -- visible to department + any super_user with a grant
@@ -23,25 +23,25 @@ CREATE TYPE visibility_level AS ENUM (
   'restricted'       -- visible only to the owner (personal Gmail, Calendar, etc.)
 );
 
-CREATE TYPE grant_scope AS ENUM (
+CREATE TYPE IF NOT EXISTS grant_scope AS ENUM (
   'department',      -- grant access to an entire department's docs
   'resource',        -- grant access to a specific document or folder
   'source'           -- grant access to all docs from a source type (e.g., all Jira)
 );
 
-CREATE TYPE connection_scope AS ENUM (
+CREATE TYPE IF NOT EXISTS connection_scope AS ENUM (
   'org',             -- admin-connected, shared across the org
   'user'             -- user-connected, personal (Gmail, personal Calendar)
 );
 
-CREATE TYPE connection_status AS ENUM (
+CREATE TYPE IF NOT EXISTS connection_status AS ENUM (
   'active',
   'syncing',
   'error',
   'disconnected'
 );
 
-CREATE TYPE hitl_decision AS ENUM (
+CREATE TYPE IF NOT EXISTS hitl_decision AS ENUM (
   'approved',
   'edited',
   'rejected'
@@ -51,7 +51,7 @@ CREATE TYPE hitl_decision AS ENUM (
 -- 1. Organizations
 -- ============================================================
 
-CREATE TABLE organizations (
+CREATE TABLE IF NOT EXISTS organizations (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   clerk_org_id    text UNIQUE NOT NULL,
   name            text NOT NULL,
@@ -64,7 +64,7 @@ CREATE TABLE organizations (
 -- 2. Departments
 -- ============================================================
 
-CREATE TABLE departments (
+CREATE TABLE IF NOT EXISTS departments (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name            text NOT NULL,
@@ -78,7 +78,7 @@ CREATE TABLE departments (
 -- 3. Organization Members
 -- ============================================================
 
-CREATE TABLE org_members (
+CREATE TABLE IF NOT EXISTS org_members (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   clerk_user_id   text NOT NULL,
@@ -104,7 +104,7 @@ CREATE TABLE org_members (
 -- Grants are additive only — they add access, never remove.
 -- Grants CANNOT unlock 'confidential' visibility docs.
 
-CREATE TABLE access_grants (
+CREATE TABLE IF NOT EXISTS access_grants (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id         uuid NOT NULL REFERENCES org_members(id) ON DELETE CASCADE,
@@ -123,7 +123,7 @@ CREATE TABLE access_grants (
 -- ============================================================
 -- Rule #3: NEVER store OAuth tokens. Only nango_connection_id.
 
-CREATE TABLE connections (
+CREATE TABLE IF NOT EXISTS connections (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id              uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id             uuid REFERENCES org_members(id) ON DELETE CASCADE,  -- NULL = org-level
@@ -145,7 +145,7 @@ CREATE TABLE connections (
 -- 6. Documents (metadata only — NEVER store content. Rule #2)
 -- ============================================================
 
-CREATE TABLE documents (
+CREATE TABLE IF NOT EXISTS documents (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   connection_id   uuid NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
@@ -174,7 +174,7 @@ CREATE TABLE documents (
 -- Embedding model: text-embedding-3-small, dimension 1536 (fixed).
 -- content_preview = first 200 chars only (Rule #2).
 
-CREATE TABLE document_embeddings (
+CREATE TABLE IF NOT EXISTS document_embeddings (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   document_id     uuid NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -198,7 +198,7 @@ CREATE TABLE document_embeddings (
 -- One org-wide graph per org. Access-controlled via RLS.
 -- Each node represents an entity extracted from indexed docs.
 
-CREATE TABLE kg_nodes (
+CREATE TABLE IF NOT EXISTS kg_nodes (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   label           text NOT NULL,
@@ -219,7 +219,7 @@ CREATE TABLE kg_nodes (
 -- 9. Knowledge Graph — Edges (relationships between entities)
 -- ============================================================
 
-CREATE TABLE kg_edges (
+CREATE TABLE IF NOT EXISTS kg_edges (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   source_node     uuid NOT NULL REFERENCES kg_nodes(id) ON DELETE CASCADE,
@@ -240,7 +240,7 @@ CREATE TABLE kg_edges (
 -- 10. Threads (LangGraph conversation threads)
 -- ============================================================
 
-CREATE TABLE threads (
+CREATE TABLE IF NOT EXISTS threads (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id         uuid NOT NULL REFERENCES org_members(id) ON DELETE CASCADE,
@@ -255,7 +255,7 @@ CREATE TABLE threads (
 -- 11. Thread Checkpoints (LangGraph state persistence)
 -- ============================================================
 
-CREATE TABLE thread_checkpoints (
+CREATE TABLE IF NOT EXISTS thread_checkpoints (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   thread_id       uuid NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -268,7 +268,7 @@ CREATE TABLE thread_checkpoints (
 -- 12. HITL Decisions (approve / edit / reject audit trail)
 -- ============================================================
 
-CREATE TABLE hitl_decisions (
+CREATE TABLE IF NOT EXISTS hitl_decisions (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   thread_id       uuid NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
@@ -284,7 +284,7 @@ CREATE TABLE hitl_decisions (
 -- 13. Grant Access Audit (every cross-scope read by super_user)
 -- ============================================================
 
-CREATE TABLE grant_access_audit (
+CREATE TABLE IF NOT EXISTS grant_access_audit (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id         uuid NOT NULL REFERENCES org_members(id),
@@ -299,7 +299,7 @@ CREATE TABLE grant_access_audit (
 -- 14. Admin Actions (general admin audit log)
 -- ============================================================
 
-CREATE TABLE admin_actions (
+CREATE TABLE IF NOT EXISTS admin_actions (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   admin_user_id   uuid NOT NULL REFERENCES org_members(id),
@@ -307,6 +307,22 @@ CREATE TABLE admin_actions (
   target_user_id  uuid REFERENCES org_members(id),
   details         jsonb DEFAULT '{}',
   performed_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- ============================================================
+-- 15. Cross-Dept Audit Log (consolidated from legacy)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS cross_dept_audit_log (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  thread_id           uuid,                      -- optional, links to a conversation thread
+  org_id              uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id             text NOT NULL,             -- Clerk user ID
+  queried_dept_ids    uuid[] NOT NULL DEFAULT '{}',
+  chunk_ids_accessed  text[] NOT NULL DEFAULT '{}',
+  prompt_hash         text NOT NULL,             -- privacy-safe SHA256 of the user query
+  grant_id            uuid REFERENCES access_grants(id) ON DELETE SET NULL,
+  created_at          timestamptz NOT NULL DEFAULT now()
 );
 
 -- ============================================================

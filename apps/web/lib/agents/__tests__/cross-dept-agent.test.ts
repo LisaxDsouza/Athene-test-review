@@ -136,66 +136,69 @@ describe('crossDeptAgent — bi_analyst path', () => {
   })
 })
 
-describe('crossDeptAgent — audit logging', () => {
-  it('writes audit row when docs retrieved', async () => {
+describe("crossDeptAgent — audit logging", () => {
+  it("writes audit row when docs retrieved", async () => {
     mockToolNodeInvoke.mockResolvedValue({
       messages: [
         {
-          _getType: () => 'tool',
+          _getType: () => "tool",
           content: JSON.stringify([
-            { chunk_id: 'c-1', metadata: { department_id: 'eng' } },
-            { chunk_id: 'c-2', metadata: { department_id: 'finance' } },
+            { chunk_id: "c-1", metadata: { department_id: "eng" } },
+            { chunk_id: "c-2", metadata: { department_id: "finance" } },
           ]),
         },
       ],
-    })
+    });
 
-    await crossDeptAgent(makeState('bi_analyst'), {})
+    await crossDeptAgent(makeState("super_user"), {});
 
-    expect(mockFromAudit).toHaveBeenCalledWith('bi_access_audit')
-    const insertArg = mockInsert.mock.calls[0][0] as any[]
-    expect(insertArg).toHaveLength(2)
-    expect(insertArg[0]).toMatchObject({ org_id: 'org-test', doc_id: 'c-1', dept: 'eng' })
-    expect(insertArg[1]).toMatchObject({ org_id: 'org-test', doc_id: 'c-2', dept: 'finance' })
-  })
+    expect(mockFromAudit).toHaveBeenCalledWith("cross_dept_audit_log");
+    const insertArg = mockInsert.mock.calls[0][0];
+    expect(insertArg).toMatchObject({
+      org_id: "org-test",
+      user_id: "user-test",
+      queried_dept_ids: ["eng", "finance"],
+      chunk_ids_accessed: ["c-1", "c-2"],
+    });
+    expect(insertArg.prompt_hash).toBeDefined();
+  });
 
-  it('writes single null-doc audit row when 0 docs returned', async () => {
-    mockToolNodeInvoke.mockResolvedValue({ messages: [] })
+  it("writes audit row even when 0 docs returned", async () => {
+    mockToolNodeInvoke.mockResolvedValue({ messages: [] });
 
-    await crossDeptAgent(makeState('bi_analyst'), {})
+    await crossDeptAgent(makeState("super_user"), {});
 
-    expect(mockFromAudit).toHaveBeenCalledWith('bi_access_audit')
-    const insertArg = mockInsert.mock.calls[0][0] as any[]
-    expect(insertArg).toHaveLength(1)
-    expect(insertArg[0]).toMatchObject({
-      org_id: 'org-test',
-      user_id: 'user-test',
-      doc_id: null,
-      dept: null,
-    })
-  })
+    expect(mockFromAudit).toHaveBeenCalledWith("cross_dept_audit_log");
+    const insertArg = mockInsert.mock.calls[0][0];
+    expect(insertArg).toMatchObject({
+      org_id: "org-test",
+      user_id: "user-test",
+      queried_dept_ids: [],
+      chunk_ids_accessed: [],
+    });
+  });
 
-  it('audit failure does not bubble up', async () => {
-    mockToolNodeInvoke.mockResolvedValue({ messages: [] })
-    mockInsert.mockResolvedValue({ error: { message: 'DB error' } })
+  it("audit failure does not bubble up", async () => {
+    mockToolNodeInvoke.mockResolvedValue({ messages: [] });
+    mockInsert.mockResolvedValue({ error: { message: "DB error" } });
 
     // Should resolve without throwing
     await expect(
-      crossDeptAgent(makeState('bi_analyst'), {}),
-    ).resolves.toBeDefined()
-  })
+      crossDeptAgent(makeState("super_user"), {}),
+    ).resolves.toBeDefined();
+  });
 
-  it('extracts query text from last human message', async () => {
-    mockToolNodeInvoke.mockResolvedValue({ messages: [] })
+  it("extracts query text for hashing from last human message", async () => {
+    mockToolNodeInvoke.mockResolvedValue({ messages: [] });
 
     await crossDeptAgent(
-      makeState('bi_analyst', [
-        { role: 'user', content: 'what are the finance trends?' },
+      makeState("super_user", [
+        { role: "user", content: "what are the finance trends?" },
       ]),
       {},
-    )
+    );
 
-    const insertArg = mockInsert.mock.calls[0][0] as any[]
-    expect(insertArg[0].query).toBe('what are the finance trends?')
-  })
-})
+    const insertArg = mockInsert.mock.calls[0][0];
+    expect(insertArg.prompt_hash).toBeDefined();
+  });
+});

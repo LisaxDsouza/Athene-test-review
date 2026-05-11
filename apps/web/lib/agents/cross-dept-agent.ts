@@ -5,13 +5,13 @@
 // Uses crossDeptVectorSearchTool (ATH-33) which enforces
 // visibility='bi_accessible' at the DB level.
 //
-// Every execution writes a row to bi_access_audit regardless of
+// Every execution writes a row to cross_dept_audit_log regardless of
 // whether docs are found — the audit trail is unconditional.
 //
 // 🔒 Security contract:
 //   - role !== 'bi_analyst' → immediate 403-style rejection
 //   - crossDeptVectorSearch enforces a second role check inside
-//   - bi_access_audit captures: orgId, userId, query, dept, docId
+//   - cross_dept_audit_log captures: orgId, userId, query, queried_dept_ids, chunk_ids_accessed, prompt_hash
 // ============================================================
 
 import { ToolNode } from '@langchain/langgraph/prebuilt'
@@ -94,8 +94,8 @@ export async function crossDeptAgent(
 // ---- Audit writer -------------------------------------------
 
 /**
- * Writes one row per retrieved document to bi_access_audit.
- * If no docs found, writes a single row with null doc_id.
+ * Writes one row to cross_dept_audit_log (migration 001_schema.sql).
+ * Schema: thread_id, user_id, org_id, queried_dept_ids uuid[], chunk_ids_accessed uuid[], prompt_hash, grant_id
  * Failures are logged but never bubble up — audit must not break the agent.
  */
 async function writeBIAuditRows(
@@ -104,31 +104,33 @@ async function writeBIAuditRows(
   query: string,
   docs: Array<{ chunk_id?: string; metadata?: { department_id?: string } }>,
 ): Promise<void> {
-  const timestamp = new Date().toISOString()
+  // Derive queried dept IDs and accessed chunk IDs from retrieved docs
+  const queriedDeptIds = [
+    ...new Set(docs.map((d) => d.metadata?.department_id).filter(Boolean) as string[]),
+  ];
+  const chunkIdsAccessed = docs
+    .map((d) => d.chunk_id)
+    .filter(Boolean) as string[];
 
-  const rows =
-    docs.length > 0
-      ? docs.map((doc) => ({
-          org_id: orgId,
-          user_id: userId,
-          query,
-          dept: doc.metadata?.department_id ?? null,
-          doc_id: doc.chunk_id ?? null,
-          timestamp,
-        }))
-      : [
-          {
-            org_id: orgId,
-            user_id: userId,
-            query,
-            dept: null,
-            doc_id: null,
-            timestamp,
-          },
-        ]
+  // Hash the query text for privacy-safe audit trail
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(query));
+  const promptHash = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
-  const { error } = await supabaseAdmin.from('bi_access_audit').insert(rows)
+  const { error } = await supabaseAdmin.from("cross_dept_audit_log").insert({
+    thread_id: crypto.randomUUID(), // agent runs don't always have a thread_id here
+    org_id: orgId,
+    user_id: userId,
+    queried_dept_ids: queriedDeptIds,
+    chunk_ids_accessed: chunkIdsAccessed,
+    prompt_hash: promptHash,
+    grant_id: null,
+  });
+
   if (error) {
-    console.error('[cross-dept-agent] bi_access_audit write failed:', error.message)
+    console.error("[cross-dept-agent] cross_dept_audit_log write failed:", error.message);
   }
 }
+

@@ -8,7 +8,7 @@ export async function GET(req: Request) {
   try {
     const { identity } = await requireAdmin(req);
     const { data, error } = await createSupabaseServiceClient()
-      .from("org_api_keys")
+      .from("llm_keys")
       .select("id, provider, label, key_hint, is_active, created_at")
       .eq("org_id", identity.orgId)
       .eq("is_active", true);
@@ -34,28 +34,17 @@ export async function POST(req: Request) {
         return Response.json({ error: "Missing required environment variable for encryption" }, { status: 500 });
     }
 
-    // Use encrypt_key(p_key, p_secret) — defined in migration 002_rls_policies.sql
-    const { data: encryptedKey, error: encryptError } = await supabase.rpc("encrypt_key", { 
-        p_key: rawKey,
-        p_secret: secret
+    // Use store_llm_key RPC — defined in migration 008_rls_helpers.sql
+    const { error: storeError } = await supabase.rpc("store_llm_key", { 
+        p_org_id: identity.orgId,
+        p_provider: provider,
+        p_plaintext: rawKey,
+        p_kms_key: secret
     });
 
-    if (encryptError) throw encryptError;
+    if (storeError) throw storeError;
 
-    // Table: org_api_keys (migration 001_schema.sql)
-    // Columns: encrypted_key, added_by (not key_encrypted, created_by)
-    const { data, error } = await supabase.from("org_api_keys").upsert({
-      org_id: identity.orgId,
-      provider,
-      label,
-      encrypted_key: encryptedKey,
-      key_hint: rawKey.slice(-4),
-      custom_endpoint: body.custom_endpoint || null,
-      is_active: true,
-      added_by: identity.userId,
-    }, { onConflict: "org_id,provider" }).select("id, provider, label, key_hint, is_active").single();
-    if (error) throw error;
-    return Response.json(data);
+    return Response.json({ ok: true });
   } catch (error) {
     return jsonError(error);
   }
@@ -66,7 +55,7 @@ export async function DELETE(req: Request) {
     const { identity } = await requireAdmin(req);
     const provider = new URL(req.url).searchParams.get("provider");
     if (!provider) return Response.json({ error: "provider is required" }, { status: 400 });
-    const { error } = await createSupabaseServiceClient().from("org_api_keys").update({ is_active: false }).eq("org_id", identity.orgId).eq("provider", provider);
+    const { error } = await createSupabaseServiceClient().from("llm_keys").update({ is_active: false }).eq("org_id", identity.orgId).eq("provider", provider);
     if (error) throw error;
     return Response.json({ ok: true });
   } catch (error) {

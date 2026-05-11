@@ -4,7 +4,7 @@
  * Cross-department retrieval agent worker node.
  *
  * Delegates to the `lib/agents/cross-dept-agent` implementation which
- * enforces the BI role check and writes the bi_access_audit trail.
+ * enforces the BI role check and writes the cross_dept_audit_log trail.
  * This thin wrapper adapts the LangGraph node signature (state + config)
  * and tags `active_agent` on the returned state update.
  *

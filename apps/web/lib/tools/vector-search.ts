@@ -10,6 +10,7 @@ type Params = {
   user_role: UserRoleValue;
   query: string;
   topK?: number;
+  apiKey?: string;
 };
 
 /**
@@ -23,8 +24,9 @@ export async function vectorSearch({
   user_role,
   query,
   topK = 5,
+  apiKey,
 }: Params) {
-  const embedding = await embed(query);
+  const embedding = await embed(query, apiKey);
 
   const ctx: RLSContext = {
     org_id: orgId,
@@ -53,7 +55,7 @@ export async function crossDeptVectorSearch(params: Params) {
     throw new Error("Unauthorized: cross-department search requires super_user role");
   }
 
-  const embedding = await embed(params.query);
+  const embedding = await embed(params.query, params.apiKey);
 
   const ctx: RLSContext = {
     org_id: params.orgId,
