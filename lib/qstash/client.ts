@@ -2,7 +2,20 @@ import { Client } from '@upstash/qstash'
 import { incrWithExpire, redis } from '@/lib/redis/client'
 import { supabaseAdmin } from '@/lib/supabase/server'
 
-export const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
+let _qstash: Client | null = null
+
+function getQStash(): Client {
+  if (!_qstash) {
+    const token = process.env.QSTASH_TOKEN
+    if (!token) throw new Error('Missing QSTASH_TOKEN environment variable')
+    _qstash = new Client({ token })
+  }
+  return _qstash
+}
+
+export const qstash = new Proxy({} as Client, {
+  get(_, prop) { return (getQStash() as any)[prop] },
+})
 
 const CONCURRENCY_LIMIT = 3
 const CONCURRENCY_TTL_SECONDS = 900
