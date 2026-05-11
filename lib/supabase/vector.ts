@@ -15,7 +15,7 @@ export async function similaritySearch(
   topK: number,
   deptFilter?: string,
 ): Promise<VectorChunk[]> {
-  return withRLS({ org_id: orgId, user_id: userId }, async (client) => {
+  return withRLS({ org_id: orgId, user_id: userId, user_role: 'member' }, async (client) => {
     let query = client
       .from('document_embeddings')
       .select('chunk_id, source_url, title, metadata, dept_id, embedding')
@@ -46,7 +46,7 @@ export async function crossDeptSearch(
   topK: number,
   deptIds: string[],
 ): Promise<VectorChunk[]> {
-  return withRLS({ org_id: orgId, user_id: userId }, async (client) => {
+  return withRLS({ org_id: orgId, user_id: userId, user_role: 'member', grant_ids: deptIds }, async (client) => {
     const { data, error } = await client
       .from('document_embeddings')
       .select('chunk_id, source_url, title, metadata, dept_id, embedding')

@@ -1,5 +1,5 @@
 import { Client } from '@upstash/qstash'
-import { incrWithExpire, redis } from '@/lib/redis/client'
+import { getRedis, incrWithExpire } from '@/lib/redis/client'
 import { supabaseAdmin } from '@/lib/supabase/server'
 
 export const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
@@ -46,6 +46,7 @@ export async function dispatchThrottled({
   const current = await incrWithExpire(key, CONCURRENCY_TTL_SECONDS)
 
   if (current > CONCURRENCY_LIMIT) {
+    const redis = getRedis()
     await redis.decr(key)
     await supabaseAdmin.from('pending_background_jobs').insert({
       org_id: orgId,
@@ -63,6 +64,7 @@ export async function dispatchThrottled({
 
 export async function releaseSlot(orgId: string, sourceType: string) {
   const key = `nango_concurrency:${orgId}:${sourceType}`
+  const redis = getRedis()
   await redis.decr(key)
 
   const { data: jobs } = await supabaseAdmin

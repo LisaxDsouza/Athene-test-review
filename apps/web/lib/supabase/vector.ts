@@ -23,7 +23,8 @@ export async function embedQuery(query: string) {
 
 export async function vectorSearch(userId: string, orgId: string, query: string, limit = 8): Promise<VectorHit[]> {
   const embedding = await embedQuery(query);
-  return withRLS(userId, orgId, async (client) => {
+  const ctx = { user_id: userId, org_id: orgId, user_role: 'member' };
+  return withRLS(ctx, async (client) => {
     const { data, error } = await client.rpc("match_document_embeddings", {
       query_embedding: embedding,
       match_count: limit,
