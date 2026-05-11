@@ -8,8 +8,9 @@ function buildRLSContext(state: AtheneStateType): RLSContext {
   return {
     org_id: state.org_id,
     user_id: state.user_id,
-    user_role: (state.user_role ?? "member") as RLSContext["user_role"],
+    user_role: state.user_role || "member",
     department_id: state.user_dept_id ?? undefined,
+    grant_ids: (state as any).grant_ids || [], // Future-proof for BI Grants UI
   };
 }
 
@@ -52,7 +53,7 @@ export async function retrievalAgent(state: AtheneStateType): Promise<AtheneStat
     vectorSearch({
       orgId: org_id,
       userId: user_id,
-      user_role: (user_role === "bi_analyst" ? "member" : user_role ?? "member") as "member" | "super_user" | "admin",
+      user_role: (user_role || "member") as any,
       query,
       topK: 8,
     }).catch(() => []),

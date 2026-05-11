@@ -8,10 +8,10 @@ export async function GET(req: Request) {
     const { identity } = await requireAdmin(req);
     const url = new URL(req.url);
     let query = createSupabaseServiceClient()
-      .from("cross_dept_audit_log")
-      .select("id, thread_id, user_id, queried_dept_ids, chunk_ids_accessed, prompt_hash, grant_id, accessed_at")
+      .from("security_audit_log")
+      .select("id, user_id, role, grant_count, created_at")
       .eq("org_id", identity.orgId)
-      .order("accessed_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(Number(url.searchParams.get("limit") || 100));
     const userId = url.searchParams.get("user_id");
     if (userId) query = query.eq("user_id", userId);

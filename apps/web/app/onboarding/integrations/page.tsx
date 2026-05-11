@@ -250,7 +250,7 @@ export default function SetupWizardPage() {
             </div>
 
             {/* Main card */}
-            <div className="w-full max-w-3xl bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden flex flex-col" style={{ maxHeight: "82vh" }}>
+            <div className="w-full max-w-3xl bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden flex flex-col flex-1 min-h-0 mb-8">
 
                 {/* ── STEP 1: INTEGRATIONS ────────────────────────────────── */}
                 {step === 1 && (
