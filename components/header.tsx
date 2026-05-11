@@ -5,7 +5,7 @@ import { useEffect, useState, memo } from "react";
 import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
 import { Sun, Moon, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Sidebar } from "@/components/sidebar";
 import type { UserRole } from "@/lib/auth/rbac";
 
@@ -16,6 +16,7 @@ interface HeaderProps {
 const Header = memo(function HeaderContent({ role }: HeaderProps) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Prevent hydration mismatch
   useEffect(() => {
@@ -29,7 +30,7 @@ const Header = memo(function HeaderContent({ role }: HeaderProps) {
       <div className="flex h-16 items-center justify-between px-8">
         {/* Mobile Sidebar */}
         <div className="flex lg:hidden mr-4">
-          <Sheet>
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
               <Button
                 variant="ghost"
@@ -41,7 +42,8 @@ const Header = memo(function HeaderContent({ role }: HeaderProps) {
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="p-0 border-r-0 w-64">
-              <Sidebar role={role} className="w-full border-r-0" />
+              <SheetTitle className="sr-only">Navigation</SheetTitle>
+              <Sidebar role={role} className="w-full border-r-0" onNavClick={() => setMobileOpen(false)} />
             </SheetContent>
           </Sheet>
         </div>

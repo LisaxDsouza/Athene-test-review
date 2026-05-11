@@ -4,6 +4,7 @@ import { mapRole } from '@/lib/auth/clerk'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { qstash } from '@/lib/qstash/client'
 import { getAppBaseUrl } from '@/lib/config/app-url'
+import { resolveOrgUuid } from '@/lib/auth/rbac'
 
 // Cron expressions per automation type
 const AUTOMATION_CRON: Record<string, string> = {
@@ -17,10 +18,13 @@ export async function GET() {
   const role = mapRole(orgRole ?? undefined)
   if (role !== 'admin') return new NextResponse('Forbidden', { status: 403 })
 
+  const orgUuid = await resolveOrgUuid(orgId)
+  if (!orgUuid) return NextResponse.json({ automations: [] })
+
   const { data, error } = await supabaseAdmin
     .from('automations')
     .select('*')
-    .eq('org_id', orgId)
+    .eq('org_id', orgUuid)
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -38,6 +42,9 @@ export async function POST(req: NextRequest) {
   const role = mapRole(orgRole ?? undefined)
   if (role !== 'admin') return new NextResponse('Forbidden', { status: 403 })
 
+  const orgUuid = await resolveOrgUuid(orgId)
+  if (!orgUuid) return new NextResponse('Organization not found', { status: 403 })
+
   let body: Record<string, unknown>
   try {
     body = await req.json()
@@ -47,7 +54,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('automations')
-    .insert({ ...body, org_id: orgId, created_by: userId })
+    .insert({ ...body, org_id: orgUuid, created_by: userId })
     .select('id')
     .single()
 
@@ -66,6 +73,9 @@ export async function DELETE(req: NextRequest) {
   const role = mapRole(orgRole ?? undefined)
   if (role !== 'admin') return new NextResponse('Forbidden', { status: 403 })
 
+  const orgUuid = await resolveOrgUuid(orgId)
+  if (!orgUuid) return new NextResponse('Organization not found', { status: 403 })
+
   let body: { id?: string }
   try {
     body = await req.json()
@@ -80,7 +90,7 @@ export async function DELETE(req: NextRequest) {
     .from('automations')
     .select('qstash_schedule_id')
     .eq('id', body.id)
-    .eq('org_id', orgId)
+    .eq('org_id', orgUuid)
     .maybeSingle()
 
   if (existing?.qstash_schedule_id) {
@@ -95,7 +105,7 @@ export async function DELETE(req: NextRequest) {
     .from('automations')
     .delete()
     .eq('id', body.id)
-    .eq('org_id', orgId)
+    .eq('org_id', orgUuid)
 
   if (error) {
     console.error('[automations] Failed to delete:', error.message)
@@ -112,6 +122,9 @@ export async function PATCH(req: NextRequest) {
   const role = mapRole(orgRole ?? undefined)
   if (role !== 'admin') return new NextResponse('Forbidden', { status: 403 })
 
+  const orgUuid = await resolveOrgUuid(orgId)
+  if (!orgUuid) return new NextResponse('Organization not found', { status: 403 })
+
   let body: { id?: string; enabled?: boolean }
   try {
     body = await req.json()
@@ -127,7 +140,7 @@ export async function PATCH(req: NextRequest) {
     .from('automations')
     .select('*')
     .eq('id', body.id)
-    .eq('org_id', orgId)
+    .eq('org_id', orgUuid)
     .maybeSingle()
 
   if (fetchError) {
@@ -156,7 +169,8 @@ export async function PATCH(req: NextRequest) {
     const schedule = await qstash.schedules.create({
       destination: workerUrl,
       cron: cronExpression,
-      body: JSON.stringify({ orgId }),
+      // Pass the Supabase UUID so the worker can query the DB directly
+      body: JSON.stringify({ orgId: orgUuid }),
       headers: { 'Content-Type': 'application/json' },
     })
 
@@ -182,7 +196,7 @@ export async function PATCH(req: NextRequest) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', body.id)
-    .eq('org_id', orgId)
+    .eq('org_id', orgUuid)
     .select('*')
     .single()
 

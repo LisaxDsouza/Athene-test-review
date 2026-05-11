@@ -34,9 +34,10 @@ interface NavLink {
 interface SidebarProps {
   role: UserRole;
   className?: string;
+  onNavClick?: () => void;
 }
 
-const Sidebar = memo(function SidebarContent({ role, className }: SidebarProps) {
+const Sidebar = memo(function SidebarContent({ role, className, onNavClick }: SidebarProps) {
   const pathname = usePathname();
   const [adminOpen, setAdminOpen] = useState(pathname.startsWith("/admin"));
 
@@ -135,6 +136,7 @@ const Sidebar = memo(function SidebarContent({ role, className }: SidebarProps) 
             <Link
               key={link.href}
               href={link.href}
+              onClick={onNavClick}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-base font-medium transition-all duration-200",
                 active
@@ -180,6 +182,7 @@ const Sidebar = memo(function SidebarContent({ role, className }: SidebarProps) 
                     <Link
                       key={link.href}
                       href={link.href}
+                      onClick={onNavClick}
                       className={cn(
                         "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200",
                         active

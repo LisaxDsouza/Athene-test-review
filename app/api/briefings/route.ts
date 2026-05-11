@@ -1,21 +1,26 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { withRLS } from '@/lib/supabase/rls-client'
-import { resolveUserAccess } from '@/lib/auth/rbac'
+import { resolveUserAccess, resolveOrgUuid } from '@/lib/auth/rbac'
 
 export async function GET() {
   const { userId, orgId } = await auth()
   if (!userId || !orgId) return new NextResponse('Unauthorized', { status: 401 })
 
-  const access = await resolveUserAccess(userId, orgId)
+  const [access, orgUuid] = await Promise.all([
+    resolveUserAccess(userId, orgId),
+    resolveOrgUuid(orgId),
+  ])
+
   if (!access.role) {
     return new NextResponse('User not found in organization', { status: 403 })
   }
+  if (!orgUuid) return NextResponse.json({ briefings: [] })
 
   try {
     const data = await withRLS(
       {
-        org_id: orgId,
+        org_id: orgUuid,
         user_id: userId,
         user_role: access.role,
         department_id: access.dept_id ?? null,
@@ -24,7 +29,7 @@ export async function GET() {
         const { data: rows, error } = await client
           .from('briefings')
           .select('id, summary, content, calendar_items, email_items, doc_items, generated_at, delivered')
-          .eq('org_id', orgId)
+          .eq('org_id', orgUuid)
           .eq('user_id', userId)
           .order('generated_at', { ascending: false })
           .limit(20)

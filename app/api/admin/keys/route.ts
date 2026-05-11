@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { mapRole } from '@/lib/auth/clerk'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { invalidateByokCache } from '@/lib/langgraph/llm-factory'
+import { resolveOrgUuid } from '@/lib/auth/rbac'
 
 export async function GET() {
   const { userId, orgId, orgRole } = await auth()
@@ -11,11 +12,14 @@ export async function GET() {
   const role = mapRole(orgRole ?? undefined)
   if (role !== 'admin') return new NextResponse('Forbidden', { status: 403 })
 
+  const orgUuid = await resolveOrgUuid(orgId)
+  if (!orgUuid) return NextResponse.json({ keys: [] })
+
   // Return key metadata only — never the plaintext key
   const { data, error } = await supabaseAdmin
     .from('llm_keys')
     .select('id, provider, created_at, updated_at')
-    .eq('org_id', orgId)
+    .eq('org_id', orgUuid)
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -32,6 +36,9 @@ export async function POST(req: NextRequest) {
 
   const role = mapRole(orgRole ?? undefined)
   if (role !== 'admin') return new NextResponse('Forbidden', { status: 403 })
+
+  const orgUuid = await resolveOrgUuid(orgId)
+  if (!orgUuid) return new NextResponse('Organization not found', { status: 403 })
 
   const kmsSecret = process.env.KMS_SECRET
   if (!kmsSecret) {
@@ -53,7 +60,7 @@ export async function POST(req: NextRequest) {
   // Store via DB function that encrypts with pgp_sym_encrypt before writing.
   // The plaintext_key is sent as a bind parameter — never interpolated into SQL.
   const { error } = await supabaseAdmin.rpc('store_llm_key', {
-    p_org_id:    orgId,
+    p_org_id:    orgUuid,
     p_provider:  provider,
     p_plaintext: plaintext_key,
     p_kms_key:   kmsSecret,
@@ -64,7 +71,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  invalidateByokCache(orgId)
+  invalidateByokCache(orgUuid)
   return NextResponse.json({ stored: true })
 }
 
@@ -74,6 +81,9 @@ export async function DELETE(req: NextRequest) {
 
   const role = mapRole(orgRole ?? undefined)
   if (role !== 'admin') return new NextResponse('Forbidden', { status: 403 })
+
+  const orgUuid = await resolveOrgUuid(orgId)
+  if (!orgUuid) return new NextResponse('Organization not found', { status: 403 })
 
   let body: { id?: string }
   try {
@@ -88,13 +98,13 @@ export async function DELETE(req: NextRequest) {
     .from('llm_keys')
     .delete()
     .eq('id', body.id)
-    .eq('org_id', orgId)
+    .eq('org_id', orgUuid)
 
   if (error) {
     console.error('[keys] Failed to delete:', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  invalidateByokCache(orgId)
+  invalidateByokCache(orgUuid)
   return NextResponse.json({ deleted: true })
 }

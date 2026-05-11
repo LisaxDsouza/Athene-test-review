@@ -26,7 +26,7 @@
  */
 
 import { z } from "zod";
-import { ChatOpenAI } from "@langchain/openai";
+import { resolveModelClient } from "@/lib/langgraph/llm-factory";
 import type { AtheneStateType, AtheneStateUpdate } from "../state";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -62,18 +62,6 @@ const routingSchema = z.object({
   /** Plain-English rationale written to the audit trail */
   reasoning:   z.string(),
 });
-
-// ─── LLM singleton (lazy — module load is safe with no API key) ───────────────
-
-let _llm: ReturnType<typeof ChatOpenAI.prototype.withStructuredOutput> | null = null;
-
-function getLLM(): ReturnType<typeof ChatOpenAI.prototype.withStructuredOutput> {
-  if (!_llm) {
-    const chat = new ChatOpenAI({ modelName: "gpt-4o", temperature: 0 });
-    _llm = chat.withStructuredOutput(routingSchema);
-  }
-  return _llm;
-}
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
@@ -122,7 +110,7 @@ export async function supervisor(
   const hopCount = (state.hop_count ?? 0) + 1;
 
   // ── 1. Hard loop guard ───────────────────────────────────────────────────
-  if (state.hop_count >= MAX_HOPS) {
+  if (hopCount > MAX_HOPS) {
     return {
       active_agent: "END",
       next:         "FINISH",
@@ -132,8 +120,12 @@ export async function supervisor(
     };
   }
 
-  // ── 2. LLM routing decision ──────────────────────────────────────────────
-  const rawDecision = await getLLM().invoke([
+  // ── 2. Resolve LLM client via factory (respects BYOK, falls back to platform key)
+  const { client } = await resolveModelClient(state.org_id, "simple");
+  const llm = client.withStructuredOutput(routingSchema);
+
+  // ── 3. LLM routing decision ──────────────────────────────────────────────
+  const rawDecision = await llm.invoke([
     { role: "system", content: SYSTEM_PROMPT },
     ...state.messages,
   ]);
@@ -145,7 +137,7 @@ export async function supervisor(
     reasoning: string;
   };
 
-  // ── 3. RBAC guard — downgrade cross-dept if role is insufficient ─────────
+  // ── 4. RBAC guard — downgrade cross-dept if role is insufficient ─────────
   let nextAgent: AgentTarget  = decision.next_agent;
   let isCrossDept             = nextAgent === "cross_dept_retrieval";
   let reasoning               = decision.reasoning;
@@ -160,7 +152,7 @@ export async function supervisor(
       `role '${state.user_role}' is insufficient. Original: ${reasoning}`;
   }
 
-  // ── 4. Build state update ────────────────────────────────────────────────
+  // ── 5. Build state update ────────────────────────────────────────────────
   return {
     active_agent:        nextAgent as AtheneStateType["active_agent"],
     next:                NEXT_MAP[nextAgent],

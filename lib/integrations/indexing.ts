@@ -270,8 +270,8 @@ export async function indexDocuments(
   departmentId: string | null,
   visibility: VisibilityLevel = 'department',
   ownerUserId: string | null = null
-): Promise<{ indexed: number; errors: number }> {
-  if (chunks.length === 0) return { indexed: 0, errors: 0 }
+): Promise<{ indexed: number; errors: number; documentIds: string[] }> {
+  if (chunks.length === 0) return { indexed: 0, errors: 0, documentIds: [] }
 
   // ---- Phase 1: resolve document rows in parallel -----------------
   type PreparedItem = {
@@ -344,11 +344,12 @@ export async function indexDocuments(
     if (error) {
       console.error('[indexing] Bulk upsert error:', error.message)
       errors += records.length
-      return { indexed: 0, errors }
+      return { indexed: 0, errors, documentIds: [] }
     }
   }
 
-  return { indexed: prepared.length, errors }
+  const documentIds = [...new Set(prepared.map((item) => item.documentId))]
+  return { indexed: prepared.length, errors, documentIds }
 }
 
 // ---- Helpers ----------------------------------------------------

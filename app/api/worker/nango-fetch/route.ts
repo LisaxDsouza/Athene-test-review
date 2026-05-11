@@ -295,7 +295,7 @@ export async function POST(request: Request): Promise<Response> {
     // 6. Enqueue graph-build job if any chunks were indexed (ATH-44)
     //    Fire-and-forget: graph build runs asynchronously after embedding.
     if (result.indexed > 0) {
-      const docIds = [...new Set(allChunks.map((c) => c.chunk_id))]
+      const docIds = result.documentIds
       const graphBuildUrl = `${getAppBaseUrl()}/api/worker/graph-build`
       try {
         await qstash.publishJSON({

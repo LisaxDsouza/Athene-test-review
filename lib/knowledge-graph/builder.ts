@@ -108,7 +108,7 @@ async function processDocument(
   // 1. Load the document metadata for content_hash dedup check
   const { data: doc, error: docErr } = await supabaseAdmin
     .from('documents')
-    .select('id, content_hash, last_extracted_hash, dept_id, visibility')
+    .select('id, content_hash, last_extracted_hash, department_id, visibility')
     .eq('id', docId)
     .eq('org_id', orgId)
     .single()
@@ -125,7 +125,7 @@ async function processDocument(
   // 3. Load all chunks from document_embeddings (content is in RAM, not stored)
   const { data: chunks, error: chunkErr } = await supabaseAdmin
     .from('document_embeddings')
-    .select('chunk_id, metadata, chunk_index')
+    .select('id, metadata, chunk_index')
     .eq('document_id', docId)
     .eq('org_id', orgId)
     .order('chunk_index', { ascending: true })
@@ -152,7 +152,7 @@ async function processDocument(
     chunk_index: c.chunk_index ?? 0,
     org_id: orgId,
     document_id: docId,
-    department_id: doc.dept_id ?? undefined,
+    department_id: doc.department_id ?? undefined,
     visibility: (doc.visibility ?? 'department') as 'public' | 'department' | 'private',
   }))
 

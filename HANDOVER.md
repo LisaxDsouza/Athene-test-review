@@ -288,19 +288,31 @@ Visit `https://<your-vercel-url>` and:
 
 ## 8. What Still Needs Work
 
-### Not yet built
-| Item | Why it matters | Estimated effort |
-|------|---------------|-----------------|
-| Mobile sidebar | Sidebar is hidden on small screens; mobile nav is partially wired in the header | Half day |
-
 ### Known limitations
 - **No real-time sync** — data sources are re-indexed on manual trigger or on initial connect. Changes to source documents are not picked up until the next sync.
+- **`audit_logs` table has no writers** — the `/admin/audit` page reads from `audit_logs` but nothing in the codebase currently writes to it. The page will always show an empty table until write calls are added throughout the app (e.g. on login, on config changes, on HITL approvals).
 
 ### Completed in latest session
 The following items previously listed here are now implemented:
+
+- **Mobile sidebar** — `Sheet` in `Header` made controlled (`open`/`onOpenChange`), `Sidebar` accepts `onNavClick` callback; tapping any nav link in the mobile drawer now closes it automatically. `SheetTitle` added for accessibility.
 - **Google OAuth write actions** — `email_agent` and `calendar_agent` now detect the org's connected provider (Microsoft vs Google) at runtime and set `tool` to `gmail-send` / `google-calendar-create` accordingly. The `action-executor` dispatches to the correct Google API.
 - **Automations cron wiring** — The `PATCH /api/admin/automations` endpoint now registers / cancels real QStash scheduled messages when an automation is toggled on/off. The admin UI has a toggle (power) button per automation row.
 - **Nango `nango.yaml`** — `nango/nango.yaml` now defines all 16 supported integrations (Google Drive, Gmail, Google Calendar, Microsoft/Outlook/Calendar, Slack, Notion, HubSpot, Salesforce, GitHub, Linear, Zendesk, Jira, Confluence, Snowflake) using the exact provider keys from the `providerFetcherMap`.
+
+### Bug-fix pass (post-handover audit)
+
+Seven confirmed runtime failures found and fixed:
+
+| # | Severity | File | Issue | Fix |
+|---|----------|------|-------|-----|
+| 1 | 🔴 Critical | 15 API routes + workers | **Clerk orgId passed as Supabase UUID** — every table's `org_id` column is `uuid` referencing `organizations(id)`, but all routes used the raw Clerk string (`org_xxx`) directly. Every DB query errored with `invalid input syntax for type uuid`. | Exported `resolveOrgUuid()` from `lib/auth/rbac.ts`; every route now resolves the UUID before any DB call. |
+| 2 | 🔴 Critical | `lib/knowledge-graph/builder.ts:128` | **Non-existent column** — `.select('chunk_id, ...')` on `document_embeddings`; column is `id`. All graph builds failed. | Changed to `.select('id, ...')`. |
+| 3 | 🔴 Critical | `lib/knowledge-graph/builder.ts:111` | **Wrong column name** — `dept_id` selected from `documents`; schema column is `department_id`. All KG nodes written with `department_id: undefined`. | Changed to `department_id`. |
+| 4 | 🔴 Critical | `lib/agents/cross-dept-agent.ts:21` | **Stub tool imported** — imported `crossDeptVectorSearchTool` from `lib/tools/registry` (always returns `{ results: [] }`) instead of the real implementation in `lib/langgraph/tools/vector-search`. Cross-dept search always returned empty. | Changed import to `lib/langgraph/tools/vector-search`. |
+| 5 | 🔴 Critical | `app/api/worker/nango-fetch/route.ts:298` | **Wrong document IDs to graph-build** — sent `FetchedChunk.chunk_id` (external provider IDs like Google Drive file IDs) to the graph-build worker as `document_ids`, but the builder queries `documents.id` (Supabase UUIDs). Every incremental graph build processed zero documents. | Modified `indexDocuments()` to return `documentIds: string[]` (Supabase UUIDs); worker now uses `result.documentIds`. |
+| 6 | 🔴 Critical | `lib/langgraph/nodes/supervisor.ts:72` | **Hardcoded `ChatOpenAI` / `gpt-4o`** — supervisor crashed on every request if `OPENAI_API_KEY` was not set (env var is listed as "Recommended", not required). Entire agent system unusable without OpenAI. | Replaced with `resolveModelClient(state.org_id, 'simple')` — respects BYOK keys and falls back to the configured platform provider (DeepSeek, Anthropic, etc.). |
+| 7 | 🟡 Medium | `lib/langgraph/nodes/supervisor.ts:125` | **Off-by-one in hop guard** — `if (state.hop_count >= MAX_HOPS)` checked the pre-increment value, so the supervisor ran 7 times before terminating instead of 6. | Changed to `if (hopCount > MAX_HOPS)` (post-increment). |
 
 ---
 

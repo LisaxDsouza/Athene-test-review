@@ -10,10 +10,14 @@ import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { dispatchThrottled } from '@/lib/qstash/client'
 import { getAppBaseUrl } from '@/lib/config/app-url'
+import { resolveOrgUuid } from '@/lib/auth/rbac'
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const { userId, orgId } = await auth()
   if (!userId || !orgId) return new NextResponse('Unauthorized', { status: 401 })
+
+  const orgUuid = await resolveOrgUuid(orgId)
+  if (!orgUuid) return new NextResponse('Organization not found', { status: 403 })
 
   let body: { connectionId?: string; provider?: string }
   try {
@@ -33,10 +37,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const url = `${getAppBaseUrl()}/api/worker/nango-fetch`
 
   const { dispatched, msgId } = await dispatchThrottled({
-    orgId,
+    orgId: orgUuid,
     sourceType: provider,
     url,
-    body: { orgId, connectionId, provider },
+    body: { orgId: orgUuid, connectionId, provider },
   })
 
   if (!dispatched) {

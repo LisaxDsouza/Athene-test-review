@@ -13,8 +13,8 @@ export interface UserAccess {
 
 const RBAC_CACHE_TTL_SECONDS = 300
 
-/** Resolve (or create) the Supabase UUID for a Clerk org ID. */
-async function resolveOrgUuid(clerkOrgId: string): Promise<string | null> {
+/** Resolve the Supabase UUID for a Clerk org ID. Returns null if the org row doesn't exist yet. */
+export async function resolveOrgUuid(clerkOrgId: string): Promise<string | null> {
   const { data } = await supabaseAdmin
     .from('organizations')
     .select('id')
