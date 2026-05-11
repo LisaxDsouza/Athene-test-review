@@ -265,6 +265,7 @@ export default function IntegrationsPage() {
   const [connecting, setConnecting] = useState<string | null>(null); // providerKey being connected
   const [disconnecting, setDisconnecting] = useState<Connection | null>(null);
   const [disconnectLoading, setDisconnectLoading] = useState(false);
+  const [reindexing, setReindexing] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   // ── Fetch active connections ──────────────────────────────────────────────
@@ -336,6 +337,31 @@ export default function IntegrationsPage() {
       setConnecting(null);
     }
   }, [fetchConnections]);
+
+  // ── Force re-index ─────────────────────────────────────────────────────────
+  const handleReindex = useCallback(async (conn: Connection) => {
+    setReindexing(conn.connection_id);
+    try {
+      // Fetch all document IDs for this connection then trigger index-delta
+      const docsRes = await fetch(`/api/connections/documents?connectionId=${encodeURIComponent(conn.connection_id)}`);
+      const documentIds: string[] = docsRes.ok ? ((await docsRes.json()).ids ?? []) : [];
+
+      await fetch("/api/worker/index-delta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          org_id: conn.org_id ?? "",
+          document_ids: documentIds,
+        }),
+      });
+      const meta = getProviderMeta(conn.provider_config_key);
+      setToast({ msg: `Re-index queued for ${meta?.displayName ?? "integration"}.`, type: "success" });
+    } catch (e: any) {
+      setToast({ msg: `Re-index failed: ${e.message}`, type: "error" });
+    } finally {
+      setReindexing(null);
+    }
+  }, []);
 
   // ── Disconnect ─────────────────────────────────────────────────────────────
   const handleDisconnect = useCallback(async () => {
@@ -503,13 +529,25 @@ export default function IntegrationsPage() {
                       <span className="text-[11px] text-slate-400">
                         {meta?.description ?? "Connected"}
                       </span>
-                      <button
-                        onClick={() => setDisconnecting(conn)}
-                        className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                        title="Disconnect"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleReindex(conn)}
+                          disabled={reindexing === conn.connection_id}
+                          className="p-1.5 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-40"
+                          title="Force re-index"
+                        >
+                          {reindexing === conn.connection_id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <RefreshCw className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          onClick={() => setDisconnecting(conn)}
+                          className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title="Disconnect"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
