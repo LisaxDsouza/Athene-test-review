@@ -106,7 +106,7 @@ export default function ChatPage() {
     ]);
 
     try {
-      const res = await fetch("/api/agent/route", {
+      const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userMessage, threadId }),

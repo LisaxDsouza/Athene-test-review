@@ -174,6 +174,18 @@ const providerFetcherMap: Record<string, FetcherFn[]> = {
 
   'microsoft-graph': [microsoftFetcher],
 
+  // Aliases for UI nangoKey values that fan out to per-service fetchers
+  google: [
+    async (connectionId, orgId) => fetchDriveChunks(connectionId, orgId),
+    async (connectionId, orgId) => searchEmailChunks(connectionId, orgId, 'newer_than:90d', 50),
+    async (connectionId, orgId) => {
+      const timeMin = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      const timeMax = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+      return fetchCalendarChunks(connectionId, orgId, timeMin, timeMax)
+    },
+  ],
+  microsoft: [microsoftFetcher],
+
   jira: [fetchJiraIssues],
 
   confluence: [fetchConfluencePages],
