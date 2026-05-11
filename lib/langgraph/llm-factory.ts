@@ -75,9 +75,9 @@ const MODEL_MATRIX: Readonly<Record<LLMProvider, Readonly<Record<ModelTier, stri
     complex: "gemini-2.5-pro",
   },
   deepseek: {
-    simple:  "deepseek-chat",
-    medium:  "deepseek-chat",
-    complex: "deepseek-reasoner",
+    simple:  "deepseek-v4-flash",
+    medium:  "deepseek-v4-pro",
+    complex: "deepseek-v4-pro",
   },
 } as const;
 
