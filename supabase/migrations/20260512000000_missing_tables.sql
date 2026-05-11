@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS audit_logs (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      uuid        NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  user_id     uuid        REFERENCES org_members(user_id) ON DELETE SET NULL,
+  user_id     uuid        REFERENCES org_members(id) ON DELETE SET NULL,
   action      text        NOT NULL,
   metadata    jsonb       NOT NULL DEFAULT '{}',
   created_at  timestamptz NOT NULL DEFAULT now()
@@ -27,7 +27,7 @@ CREATE POLICY audit_logs_admin_read ON audit_logs
 CREATE TABLE IF NOT EXISTS bi_access_audit (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      uuid        NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  user_id     uuid        REFERENCES org_members(user_id) ON DELETE SET NULL,
+  user_id     uuid        REFERENCES org_members(id) ON DELETE SET NULL,
   query       text,
   dept        text,
   doc_id      uuid,
