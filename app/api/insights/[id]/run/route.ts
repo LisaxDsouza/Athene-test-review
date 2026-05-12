@@ -67,10 +67,13 @@ export async function POST(
   }
 
   const now = new Date().toISOString();
-  await supabaseAdmin
+  const { error: updateError } = await supabaseAdmin
     .from("insights")
     .update({ result: finalAnswer, citations: citedSources, refreshed_at: now })
     .eq("id", id);
+  if (updateError) {
+    console.error("[insights/run] Failed to persist result:", updateError.message);
+  }
 
   return NextResponse.json({ ok: true, result: finalAnswer, citations: citedSources, refreshed_at: now });
 }

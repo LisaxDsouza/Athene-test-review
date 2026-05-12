@@ -24,30 +24,13 @@ type PendingWriteAction = {
   requested_at: string;
 };
 
-async function resolveOrgId(clerkOrgId: string): Promise<string> {
-  const { data: orgRow, error: orgError } = await supabaseAdmin
-    .from("organizations")
-    .select("id")
-    .eq("clerk_org_id", clerkOrgId)
-    .maybeSingle();
+// state.org_id is already the Supabase UUID — no Clerk→UUID lookup needed
 
-  if (orgError) {
-    throw new Error(`Failed to resolve organization: ${orgError.message}`);
-  }
-  if (!orgRow) {
-    throw new Error("Organization not found for this Clerk org");
-  }
-
-  return orgRow.id;
-}
-
-async function resolveMicrosoftConnectionId(clerkOrgId: string): Promise<string> {
-  const orgId = await resolveOrgId(clerkOrgId);
-
+async function resolveMicrosoftConnectionId(orgUuid: string): Promise<string> {
   const { data: connectionRow, error: connectionError } = await supabaseAdmin
     .from("nango_connections")
     .select("connection_id")
-    .eq("org_id", orgId)
+    .eq("org_id", orgUuid)
     .eq("provider_config_key", "microsoft")
     .order("created_at", { ascending: false })
     .limit(1)
@@ -63,17 +46,14 @@ async function resolveMicrosoftConnectionId(clerkOrgId: string): Promise<string>
   return connectionRow.connection_id;
 }
 
-async function resolveGoogleConnectionId(clerkOrgId: string, providerKey: 'gmail' | 'google-calendar' | 'google'): Promise<string> {
-  const orgId = await resolveOrgId(clerkOrgId);
-
-  // Try the specific key first, then fall back to 'google' (combined connection)
+async function resolveGoogleConnectionId(orgUuid: string, providerKey: 'gmail' | 'google-calendar' | 'google'): Promise<string> {
   const keysToTry = providerKey === 'google' ? ['google'] : [providerKey, 'google'];
 
   for (const key of keysToTry) {
     const { data: connectionRow, error: connectionError } = await supabaseAdmin
       .from("nango_connections")
       .select("connection_id")
-      .eq("org_id", orgId)
+      .eq("org_id", orgUuid)
       .eq("provider_config_key", key)
       .order("created_at", { ascending: false })
       .limit(1)

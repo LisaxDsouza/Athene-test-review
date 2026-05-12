@@ -11,7 +11,7 @@
 // ============================================================
 
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
-import { getModel } from "../langgraph/llm-factory";
+import { resolveModelClient } from "../langgraph/llm-factory";
 import type { AtheneState, AtheneStateUpdate } from "../langgraph/state";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
@@ -103,39 +103,28 @@ function parseEmailDraft(raw: string): {
 
 // ---- Provider detection ----------------------------------------
 
-async function resolveEmailTool(clerkOrgId: string): Promise<"email-send" | "gmail-send"> {
-  // Look up the org's internal id
-  const { data: orgRow } = await supabaseAdmin
-    .from("organizations")
-    .select("id")
-    .eq("clerk_org_id", clerkOrgId)
-    .maybeSingle();
-
-  if (!orgRow) return "email-send"; // default to Microsoft if org not found
-
-  // Check if the org has a Microsoft connection
+// orgUuid is the Supabase org UUID (state.org_id) — already resolved, no Clerk lookup needed
+async function resolveEmailTool(orgUuid: string): Promise<"email-send" | "gmail-send"> {
   const { data: msConn } = await supabaseAdmin
     .from("nango_connections")
     .select("id")
-    .eq("org_id", orgRow.id)
+    .eq("org_id", orgUuid)
     .eq("provider_config_key", "microsoft")
     .limit(1)
     .maybeSingle();
 
   if (msConn) return "email-send";
 
-  // Check if the org has a Gmail or combined Google connection
   const { data: gmailConn } = await supabaseAdmin
     .from("nango_connections")
     .select("id")
-    .eq("org_id", orgRow.id)
+    .eq("org_id", orgUuid)
     .in("provider_config_key", ["gmail", "google"])
     .limit(1)
     .maybeSingle();
 
   if (gmailConn) return "gmail-send";
 
-  // Default to Microsoft (will fail at execution if no connection configured)
   return "email-send";
 }
 
@@ -146,7 +135,7 @@ export async function emailAgentNode(
 ): Promise<AtheneStateUpdate> {
   const prompt = buildPrompt(state);
 
-  const llm = getModel();
+  const { client: llm } = await resolveModelClient(state.org_id, state.complexity ?? "simple");
 
   const response = await llm.invoke([
     { role: "system", content: prompt },
