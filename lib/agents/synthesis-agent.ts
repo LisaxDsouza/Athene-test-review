@@ -1,5 +1,3 @@
-import { readFileSync } from 'fs'
-import { join } from 'path'
 import { SystemMessage } from '@langchain/core/messages'
 import type { MessageContentComplex } from '@langchain/core/messages'
 import type {
@@ -9,17 +7,9 @@ import type {
   RetrievedChunk,
 } from '../langgraph/state'
 import { resolveModelClient } from '../langgraph/llm-factory'
+import { SYNTHESIS_PROMPT } from './prompts/index'
 
 const REFUSAL = "I don't have enough info in your connected sources."
-
-function loadPromptTemplate(): string {
-  const promptPath = join(process.cwd(), 'lib/agents/prompts/synthesis.md')
-  try {
-    return readFileSync(promptPath, 'utf8')
-  } catch {
-    throw new Error('Synthesis prompt file missing')
-  }
-}
 
 function toContext(chunks: RetrievedChunk[]): string {
   return chunks
@@ -83,7 +73,7 @@ export async function synthesisAgentNode(state: AtheneStateType): Promise<Athene
     ? '\n\n*Note: some related information may exist in areas you do not have access to.*'
     : ''
 
-  const prompt = loadPromptTemplate()
+  const prompt = SYNTHESIS_PROMPT
     .replace('{{MODE}}', mode)
     .replace('{{CONTEXT}}', chunkSection + graphSection)
 

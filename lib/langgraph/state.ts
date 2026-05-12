@@ -48,6 +48,19 @@ export type ActiveAgent =
   | "END"
   | null;
 
+/**
+ * Response rendering mode — drives synthesis prompt selection and
+ * front-end component choice. Defaults to "chat". The API route
+ * may override from request body; synthesis node overrides to
+ * "cross_dept_bi" when is_cross_dept_query is true.
+ */
+export type ResponseMode =
+  | "chat"
+  | "analytical"
+  | "report"
+  | "planning"
+  | "cross_dept_bi";
+
 /** Task classification set by the supervisor */
 export type TaskType =
   | "document_search"
@@ -202,6 +215,25 @@ export const AtheneState = Annotation.Root({
   is_cross_dept_query: Annotation<boolean>({
     reducer: (_x, y) => y,
     default: () => false,
+  }),
+
+  /**
+   * Response rendering mode set at request start by the API route.
+   * Synthesis node overrides to "cross_dept_bi" for BI queries.
+   */
+  response_mode: Annotation<ResponseMode>({
+    reducer: (_x, y) => y,
+    default: () => "chat",
+  }),
+
+  /**
+   * Knowledge-graph community IDs present in retrieved_chunks.
+   * Populated by retrieval nodes; read by synthesis for context grouping.
+   * Dedup reducer — safe for concurrent retrieval node writes.
+   */
+  community_ids: Annotation<string[]>({
+    reducer: (x, y) => Array.from(new Set([...x, ...y])),
+    default: () => [],
   }),
 
   // ── Retrieved context (ephemeral — cleared after synthesis) ──────────

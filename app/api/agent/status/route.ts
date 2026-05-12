@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { resolveUserAccess } from "@/lib/auth/rbac";
+import { resolveUserAccess, resolveOrgUuid } from "@/lib/auth/rbac";
 import { getAgentGraph } from "@/lib/langgraph/graph";
 
 export async function GET(request: NextRequest) {
@@ -24,9 +24,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 2. Resolve user access (validates org membership)
-    const access = await resolveUserAccess(clerkUserId, clerkOrgId);
-    if (!access.role) {
+    // 2. Resolve org UUID and user access (validates org membership)
+    const [orgUuid, access] = await Promise.all([
+      resolveOrgUuid(clerkOrgId),
+      resolveUserAccess(clerkUserId, clerkOrgId),
+    ]);
+    if (!orgUuid || !access.role) {
       return NextResponse.json(
         { error: "User not found in organization" },
         { status: 403 }
@@ -58,7 +61,8 @@ export async function GET(request: NextRequest) {
       cited_sources?: unknown[]
     }
     const values = currentState.values as StateValues
-    if (values.org_id !== clerkOrgId || values.user_id !== clerkUserId) {
+    // Compare against resolved UUID (state stores Supabase UUID, not Clerk org ID)
+    if (values.org_id !== orgUuid || values.user_id !== clerkUserId) {
       return NextResponse.json(
         { error: "Thread not found or access denied" },
         { status: 403 }

@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { HumanMessage } from "@langchain/core/messages";
 import { getAgentGraph } from "@/lib/langgraph/graph";
 import { mapRole } from "@/lib/auth/clerk";
-import { resolveOrgUuid } from "@/lib/auth/rbac";
+import { resolveOrgUuid, resolveUserAccess } from "@/lib/auth/rbac";
 
 export const maxDuration = 300; // Vercel max for Pro plan
 
@@ -15,20 +15,26 @@ export async function POST(req: NextRequest) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
 
-    const orgUuid = await resolveOrgUuid(orgId);
+    const [orgUuid, access] = await Promise.all([
+      resolveOrgUuid(orgId),
+      resolveUserAccess(userId, orgId, mapRole(orgRole ?? undefined) ?? "member"),
+    ]);
     if (!orgUuid) {
       return new NextResponse("Organization not found", { status: 403 });
     }
 
     const { message, threadId } = await req.json();
 
-    const role = mapRole(orgRole ?? undefined) ?? "member";
+    const role = access.role ?? mapRole(orgRole ?? undefined) ?? "member";
 
     const initialState = {
       messages: [new HumanMessage(message)],
       org_id: orgUuid,
       user_id: userId,
       user_role: role,
+      user_dept_id: access.dept_id ?? null,
+      accessible_dept_ids: access.accessible_dept_ids ?? [],
+      bi_grant_id: access.bi_grant_id ?? null,
     };
 
     const graph = await getAgentGraph();

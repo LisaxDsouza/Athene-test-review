@@ -13,7 +13,7 @@
 // ============================================================
 
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
-import { getModel } from "../langgraph/llm-factory";
+import { resolveModelClient } from "../langgraph/llm-factory";
 import { supabaseAdmin } from "../supabase/server";
 import type { AtheneStateType, AtheneStateUpdate } from "../langgraph/state";
 
@@ -70,7 +70,7 @@ export async function dataIndexAgent(
     })
     .join("\n");
 
-  const llm = getModel();
+  const { client: llm } = await resolveModelClient(state.org_id, state.complexity ?? "simple");
   const response = await llm.invoke([
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: `Conversation:\n${history}\n\nWhat should be re-indexed?` },

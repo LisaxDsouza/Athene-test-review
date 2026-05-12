@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, CheckCircle2, BarChart3, Trash2, Plus, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, CheckCircle2, BarChart3, Trash2, Plus, Loader2, RefreshCw, Play } from "lucide-react";
 
 interface Insight {
   id: string;
   title: string;
   query: string;
-  result: Record<string, unknown> | null;
+  result: string | null;
   citations: unknown[];
   refreshed_at: string | null;
   created_at: string;
@@ -28,6 +28,8 @@ export default function InsightsPage() {
   const [addError, setAddError] = useState<string | null>(null);
   const [addSuccess, setAddSuccess] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [running, setRunning] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const fetchInsights = async () => {
     setLoading(true);
@@ -39,8 +41,8 @@ export default function InsightsPage() {
       const list: Insight[] = data.insights ?? [];
       setInsights(list);
       if (list.length > 0) setSelected((prev) => prev ?? list[0]);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -65,8 +67,8 @@ export default function InsightsPage() {
       setTitle("");
       setQuery("");
       await fetchInsights();
-    } catch (e: any) {
-      setAddError(e.message);
+    } catch (e: unknown) {
+      setAddError(e instanceof Error ? e.message : String(e));
     } finally {
       setAdding(false);
     }
@@ -86,10 +88,32 @@ export default function InsightsPage() {
       }
       if (selected?.id === id) setSelected(null);
       await fetchInsights();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleRun = async (id: string) => {
+    setRunning(id);
+    setRunError(null);
+    try {
+      const res = await fetch(`/api/insights/${id}/run`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to run insight");
+      // Refresh the list so the new result is shown
+      await fetchInsights();
+      // Update the selected insight in place
+      setSelected((prev) =>
+        prev?.id === id
+          ? { ...prev, result: data.result, citations: data.citations, refreshed_at: data.refreshed_at }
+          : prev,
+      );
+    } catch (e: unknown) {
+      setRunError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunning(null);
     }
   };
 
@@ -174,7 +198,7 @@ export default function InsightsPage() {
           <BarChart3 className="h-10 w-10 text-purple-400/50" />
           <p className="text-[var(--foreground)] font-medium">No insights yet</p>
           <p className="text-sm text-[var(--sidebar-text-secondary)] max-w-sm">
-            Save a natural-language BI query above and the agent will populate results.
+            Save a natural-language BI query above and run it to get agent-powered results.
           </p>
         </div>
       ) : (
@@ -221,17 +245,35 @@ export default function InsightsPage() {
           {/* Detail pane */}
           {selected && (
             <div className="lg:col-span-2 p-6 rounded-xl border border-[var(--sidebar-border)] bg-[var(--nav-hover)] space-y-4">
-              <div>
-                <h2 className="text-lg font-semibold text-[var(--foreground)]">{selected.title}</h2>
-                <p className="text-sm text-[var(--sidebar-text-secondary)] mt-1 italic">"{selected.query}"</p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-[var(--foreground)]">{selected.title}</h2>
+                  <p className="text-sm text-[var(--sidebar-text-secondary)] mt-1 italic">&quot;{selected.query}&quot;</p>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={running === selected.id}
+                  onClick={() => handleRun(selected.id)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white shrink-0"
+                >
+                  {running === selected.id
+                    ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Running…</>
+                    : <><Play className="h-4 w-4 mr-2" /> Run</>}
+                </Button>
               </div>
+
+              {runError && (
+                <div className="flex items-center gap-2 text-red-500 text-sm">
+                  <AlertCircle className="h-4 w-4" /> {runError}
+                </div>
+              )}
 
               {selected.result ? (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-purple-400 uppercase tracking-wide">Result</h3>
-                  <pre className="text-sm text-[var(--foreground)] bg-[var(--background)] rounded-lg p-4 overflow-x-auto whitespace-pre-wrap">
-                    {JSON.stringify(selected.result, null, 2)}
-                  </pre>
+                  <div className="text-sm text-[var(--foreground)] bg-[var(--background)] rounded-lg p-4 overflow-x-auto whitespace-pre-wrap">
+                    {selected.result}
+                  </div>
                   {Array.isArray(selected.citations) && selected.citations.length > 0 && (
                     <div>
                       <h3 className="text-sm font-semibold text-purple-400 uppercase tracking-wide mb-2">Citations</h3>
@@ -248,7 +290,7 @@ export default function InsightsPage() {
               ) : (
                 <div className="p-6 rounded-lg border border-dashed border-[var(--sidebar-border)] text-center">
                   <p className="text-sm text-[var(--sidebar-text-secondary)]">
-                    No result yet. The agent will populate this when it next runs a query matching this insight.
+                    No result yet. Click <strong>Run</strong> to have the agent answer this query.
                   </p>
                 </div>
               )}
