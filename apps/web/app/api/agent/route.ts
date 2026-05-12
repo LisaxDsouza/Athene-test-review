@@ -23,11 +23,18 @@ export async function POST(req: Request) {
         if (!prompt) throw new Error("Prompt is required");
         console.log("[api/agent] Prompt:", prompt);
 
+        const VALID_MODES = new Set(["chat", "analytical", "report", "planning", "cross_dept_bi"]);
+        const rawMode = String(body.mode || "chat");
+        const mode = VALID_MODES.has(rawMode)
+          ? (rawMode as import("@/lib/langgraph/state").ResponseMode)
+          : ("chat" as const);
+
         const state = createInitialState({
           prompt,
           threadId: body.thread_id,
           identity,
           access,
+          mode,
         });
 
         console.log("[api/agent] Starting graph...");

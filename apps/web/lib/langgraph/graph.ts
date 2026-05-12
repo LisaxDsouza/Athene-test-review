@@ -30,10 +30,11 @@
  */
 
 import { StateGraph, START, END, type CompiledStateGraph } from "@langchain/langgraph";
-import { AtheneState } from "./state";
+import { AtheneState, type ResponseMode } from "./state";
 import { getCheckpointer } from "./checkpointer";
 import { HumanMessage } from "@langchain/core/messages";
-import type { AtheneIdentity, ResourceAccess } from "@/lib/auth/clerk";
+import type { AtheneIdentity } from "@/lib/auth/clerk";
+import type { UserAccess as ResourceAccess } from "@/lib/auth/rbac";
 
 // ── Node imports ─────────────────────────────────────────────────────────────────────
 import { supervisor }              from "./nodes/supervisor";
@@ -163,6 +164,7 @@ export function createInitialState(params: {
   threadId?: string;
   identity: AtheneIdentity;
   access: ResourceAccess;
+  mode?: ResponseMode;
 }): typeof AtheneState.State {
   return {
     messages: [new HumanMessage(params.prompt)],
@@ -170,6 +172,7 @@ export function createInitialState(params: {
     user_id: params.identity.userId,
     user_role: params.identity.orgRole as any,
     thread_id: params.threadId || crypto.randomUUID(),
+    user_dept_id: params.access.deptId || null,
     accessible_dept_ids: params.access.accessibleDeptIds,
     bi_grant_id: params.access.biGrantId || null,
     // Defaults
@@ -187,6 +190,9 @@ export function createInitialState(params: {
     run_status: "running",
     awaiting_approval: false,
     pending_write_action: null,
+    response_mode: params.mode ?? "chat",
+    community_ids: [],
+    graph_context: "",
   };
 }
 

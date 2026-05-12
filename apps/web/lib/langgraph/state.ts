@@ -48,6 +48,19 @@ export type ActiveAgent =
   | "END"
   | null;
 
+/**
+ * Response rendering mode — drives synthesis prompt selection and
+ * front-end component choice. Set by the API route from the client
+ * `mode` field; supervisor may override to `cross_dept_bi` when
+ * `is_cross_dept_query` is true.
+ */
+export type ResponseMode =
+  | "chat"
+  | "analytical"
+  | "report"
+  | "planning"
+  | "cross_dept_bi";
+
 /** Task classification set by the supervisor */
 export type TaskType =
   | "document_search"
@@ -75,6 +88,8 @@ export interface RetrievedChunk {
   external_url?: string | null;
   department_id?: string | null;
   similarity?: number;
+  /** Knowledge-graph community this chunk belongs to (null if not indexed) */
+  community_id?: string | null;
 }
 
 /** Source reference included in the final answer */
@@ -202,6 +217,35 @@ export const AtheneState = Annotation.Root({
   is_cross_dept_query: Annotation<boolean>({
     reducer: (_x, y) => y,
     default: () => false,
+  }),
+
+  /**
+   * Response rendering mode — controls which synthesis prompt and
+   * front-end component are used. Defaults to "chat"; the API route
+   * may override from the request body; synthesis node overrides to
+   * "cross_dept_bi" when is_cross_dept_query is true.
+   */
+  response_mode: Annotation<ResponseMode>({
+    reducer: (_x, y) => y,
+    default: () => "chat",
+  }),
+
+  /**
+   * Knowledge-graph community IDs present in retrieved_chunks.
+   * Populated by retrieval nodes; read by synthesis for grouping.
+   */
+  community_ids: Annotation<string[]>({
+    reducer: (x, y) => Array.from(new Set([...x, ...y])),
+    default: () => [],
+  }),
+
+  /**
+   * Pre-rendered KG context injected into the synthesis prompt
+   * when graph traversal finds relevant nodes. Empty string = no KG hit.
+   */
+  graph_context: Annotation<string>({
+    reducer: (_x, y) => y,
+    default: () => "",
   }),
 
   // ── Retrieved context (ephemeral — cleared after synthesis) ──────────
