@@ -12,5 +12,12 @@
     "userId": "user_3AZM0F5ZtgPaWHm1ixna1T7GKo8",
     "orgId": "org_3AZM2BIkHRCxdnVcOGiI1kT15xh",
     "requestedAt": "2026-03-25T07:35:01.617Z"
+  },
+  {
+    "providerKey": "amazon",
+    "providerName": "Amazon",
+    "userId": "user_3Dc4pj8liYC04bLHbPtzFiC6jo6",
+    "orgId": null,
+    "requestedAt": "2026-05-12T06:47:16.453Z"
   }
 ]

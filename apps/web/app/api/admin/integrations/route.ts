@@ -22,7 +22,10 @@ export async function POST(req: Request) {
   try {
     const { identity } = await requireAdmin(req);
     const body = await req.json();
-    const { data, error } = await createSupabaseServiceClient().from("org_integrations").insert({
+    const supabase = createSupabaseServiceClient();
+
+    // 1. Insert into org_integrations (for sync tracking)
+    const { data, error } = await supabase.from("org_integrations").insert({
       org_id: identity.orgId,
       dept_id: body.dept_id || null,
       source_type: body.source_type,
@@ -30,7 +33,28 @@ export async function POST(req: Request) {
       index_mode: body.index_mode,
       visibility_default: body.visibility_default || "department",
     }).select("id").single();
-    if (error) throw error;
+
+    if (error) {
+      console.error("[admin/integrations] Failed to insert into org_integrations:", error);
+      throw error;
+    }
+
+    // 2. Also insert into nango_connections (for ownership verification in lib/nango/client.ts)
+    // This ensures listConnections() will return this connection.
+    const { error: mappingError } = await supabase.from("nango_connections").upsert({
+      org_id: identity.orgId,
+      connection_id: body.nango_connection_id,
+      provider_config_key: body.source_type,
+    }, {
+      onConflict: 'org_id, connection_id, provider_config_key'
+    });
+
+    if (mappingError) {
+      console.error("[admin/integrations] Failed to insert into nango_connections:", mappingError);
+      // We don't throw here to avoid failing the whole request if only the mapping fails,
+      // though it's still an issue for the Nango client lib.
+    }
+
     return Response.json(data);
   } catch (error) {
     return jsonError(error);

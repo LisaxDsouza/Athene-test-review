@@ -15,9 +15,11 @@ import {
     Search,
     Send,
     AlertCircle,
+    ChevronLeft,
 } from "lucide-react";
 import type { NangoProvider } from "@/app/api/nango/providers/route";
 import type { ConfiguredIntegration } from "@/app/api/nango/integrations/route";
+import { PROVIDER_REGISTRY, type ProviderKey } from "@/lib/integrations/providers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,16 +76,17 @@ export default function SetupWizardPage() {
     // Finish
     const [isFinishing, setIsFinishing] = useState(false);
 
-    // ── Fetch providers + configured integrations on mount ──────────────────
+    // ── Fetch providers + configured integrations + existing connections on mount ──
     useEffect(() => {
         async function fetchData() {
             setIsLoadingData(true);
             setLoadError(null);
 
             // Use allSettled so a failure in one doesn't kill the other
-            const [providersResult, configuredResult] = await Promise.allSettled([
+            const [providersResult, configuredResult, connectionsResult] = await Promise.allSettled([
                 fetch("/api/nango/providers").then((r) => r.json() as Promise<NangoProvider[]>),
                 fetch("/api/nango/integrations").then((r) => r.json() as Promise<ConfiguredIntegration[]>),
+                fetch("/api/nango/connections").then((r) => r.json() as Promise<any[]>),
             ]);
 
             if (providersResult.status === "fulfilled" && Array.isArray(providersResult.value)) {
@@ -97,7 +100,12 @@ export default function SetupWizardPage() {
                 setConfigured(configuredResult.value);
             } else {
                 console.error("[integrations page] configured integrations failed:", configuredResult);
-                // Non-fatal — page still works, everything just shows as requestable
+            }
+
+            if (connectionsResult.status === "fulfilled" && Array.isArray(connectionsResult.value)) {
+                // Map connection provider_config_key to our local connected state
+                const existingKeys = connectionsResult.value.map(c => c.provider_config_key || c.provider);
+                setConnected(existingKeys);
             }
 
             setIsLoadingData(false);
@@ -143,7 +151,25 @@ export default function SetupWizardPage() {
     // ── Nango OAuth connect ──────────────────────────────────────────────────
     const handleConnect = async (providerKey: string) => {
         if (connected.includes(providerKey)) {
-            setConnected((prev) => prev.filter((k) => k !== providerKey));
+            const confirmed = window.confirm(`Are you sure you want to disconnect ${providerKey}? This will stop all syncing and remove access.`);
+            if (!confirmed) return;
+
+            setIsAuthenticating(providerKey);
+            try {
+                const res = await fetch(`/api/nango/connections?providerConfigKey=${providerKey}`, {
+                    method: "DELETE",
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.error || "Failed to disconnect");
+                }
+                setConnected((prev) => prev.filter((k) => k !== providerKey));
+            } catch (err) {
+                console.error("Disconnect failed:", err);
+                setLoadError(err instanceof Error ? err.message : "Failed to disconnect");
+            } finally {
+                setIsAuthenticating(null);
+            }
             return;
         }
 
@@ -173,27 +199,56 @@ export default function SetupWizardPage() {
             if (!token) throw new Error("No token received");
 
             const nango = new Nango({ connectSessionToken: token });
-            const result = await nango.auth(providerKey);
+            
+            // Fetch scopes if we have them in our registry
+            const providerConfig = PROVIDER_REGISTRY[providerKey as ProviderKey];
+            const scopes = providerConfig?.capabilities?.requiresScopes || [];
+            
+            const result = await nango.auth(providerKey, {
+                ...(scopes.length > 0 && { user_scope: scopes })
+            });
 
-            // ── Persist to Supabase so the admin Integrations page reflects it ──
+            // ── Persist to Supabase ──
             try {
                 const clerkToken = await getToken();
-                await fetch("/api/admin/integrations", {
+                
+                // Map Nango keys to Athene source types to satisfy DB constraints
+                const typeMap: Record<string, string> = {
+                    "google-drive": "gdrive",
+                    "google-mail": "gmail",
+                    "outlook": "outlook",
+                    "sharepoint": "sharepoint",
+                    "onedrive": "onedrive",
+                    "notion": "notion",
+                    "jira": "jira",
+                    "confluence": "confluence",
+                    "github": "github", // Might fail if DB not updated
+                    "google": "gdrive" // Fallback for generic google
+                };
+                
+                const sourceType = typeMap[result.providerConfigKey] || result.providerConfigKey;
+
+                const persistRes = await fetch("/api/admin/integrations", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         Authorization: `Bearer ${clerkToken}`,
                     },
                     body: JSON.stringify({
-                        source_type: result.providerConfigKey,
+                        source_type: sourceType,
                         nango_connection_id: result.connectionId,
                         index_mode: "index_live_fetch",
                         visibility_default: "department",
                     }),
                 });
+
+                if (!persistRes.ok) {
+                    const errorData = await persistRes.json();
+                    throw new Error(errorData.error || "Failed to register integration");
+                }
             } catch (persistErr) {
-                // Non-fatal — connection is live in Nango even if DB write fails
-                console.error("[integrations] Failed to persist connection to DB:", persistErr);
+                console.error("[integrations] Persistence failed:", persistErr);
+                setLoadError(`Connection succeeded in Nango, but failed to register in Athene: ${persistErr instanceof Error ? persistErr.message : "Database error"}`);
             }
 
             setConnected((prev) => [...prev, providerKey]);
@@ -241,7 +296,15 @@ export default function SetupWizardPage() {
 
             {/* Header + step indicator */}
             <div className="mb-8 w-full max-w-3xl flex items-center justify-between">
-                <Image src="/athene-logo.png" alt="Athene AI" width={140} height={40} className="object-contain" priority />
+                <div className="flex items-center gap-4">
+                    <button 
+                        onClick={() => router.back()}
+                        className="flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors"
+                    >
+                        <ChevronLeft className="w-4 h-4" /> Back
+                    </button>
+                    <Image src="/athene-logo.png" alt="Athene AI" width={120} height={32} className="object-contain" priority />
+                </div>
                 <div className="flex items-center gap-2 text-sm font-medium text-slate-400">
                     <span className={step === 1 ? "text-blue-600" : "text-slate-400"}>1. Integrations</span>
                     <ArrowRight className="w-4 h-4" />
@@ -250,7 +313,7 @@ export default function SetupWizardPage() {
             </div>
 
             {/* Main card */}
-            <div className="w-full max-w-3xl bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden flex flex-col flex-1 min-h-0 mb-8">
+            <div className="w-full max-w-3xl bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden flex flex-col flex-1 min-h-0 mb-24">
 
                 {/* ── STEP 1: INTEGRATIONS ────────────────────────────────── */}
                 {step === 1 && (
@@ -277,7 +340,7 @@ export default function SetupWizardPage() {
                         </div>
 
                         {/* Body */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6 pb-12">
 
                             {/* Loading */}
                             {isLoadingData && (
@@ -414,19 +477,25 @@ export default function SetupWizardPage() {
                             )}
                         </div>
 
-                        {/* Footer */}
-                        <div className="p-5 shrink-0 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                            <p className="text-xs text-slate-400">
-                                {connected.length > 0
-                                    ? `${connected.length} integration${connected.length > 1 ? "s" : ""} connected`
-                                    : "Connect at least one source, or skip for now"}
-                            </p>
-                            <button
-                                onClick={() => setStep(2)}
-                                className="bg-blue-600 hover:bg-blue-700 text-white h-10 px-6 rounded-md font-medium transition-colors shadow-sm flex items-center gap-2 text-sm"
-                            >
-                                Continue <ArrowRight className="w-4 h-4" />
-                            </button>
+                        {/* Sticky Footer */}
+                        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] flex justify-center z-50">
+                            <div className="w-full max-w-3xl flex items-center justify-between">
+                                <p className="text-sm text-slate-500">
+                                    {connected.length > 0
+                                        ? `${connected.length} integration${connected.length > 1 ? "s" : ""} connected`
+                                        : "Connect at least one source to continue"}
+                                </p>
+                                <button
+                                    onClick={() => setStep(2)}
+                                    className={`h-11 px-8 rounded-lg font-semibold transition-all shadow-sm flex items-center gap-2 text-sm ${
+                                        connected.length > 0
+                                            ? "bg-blue-600 hover:bg-blue-700 text-white"
+                                            : "bg-slate-200 text-slate-500 cursor-not-allowed"
+                                    }`}
+                                >
+                                    Continue <ArrowRight className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
